@@ -33,6 +33,13 @@ database_file = "./data/collection1/collection1.db"
 thumbnail_media_url = "https://localhost:5001/collection1"
 original_media_url = "https://localhost:5001/collection1"
 
+# --- Optional: Media URL query params ---
+# Appended as a query string to every thumbnail / original media URL, e.g.
+# when the media server requires an access token:
+#   https://localhost:5001/collection1/<uri>?token=your-token
+# thumbnail_media_params = { token = "your-token" }
+# original_media_params = { token = "your-token" }
+
 # --- Optional: Logging ---
 # log_directory = "./logs/collection1/"
 

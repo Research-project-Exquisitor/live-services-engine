@@ -678,6 +678,74 @@ class TestTagsetName:
         assert collection_config.get_index("SigLIP_zarr").tagset_name == "SigLIP"
 
 
+class TestMediaUrls:
+    def _collection(self, write_config, dummy_files, **params):
+        collection = collection_toml(
+            name="testcol",
+            database_file=dummy_files["database_file"],
+            thumbnail_media_url="https://localhost:5000/thumbs",
+            original_media_url="https://localhost:5000/originals",
+            indexes=index_toml(
+                name="primary",
+                index_type="zarr",
+                embeddings_file=dummy_files["embeddings_file"],
+            ),
+            **params,
+        )
+        path = write_config(collection)
+        return ConfigManager(str(path)).load_config().collection_configs["testcol"]
+
+    def test_media_params_default_to_empty(self, write_config, dummy_files):
+        collection = self._collection(write_config, dummy_files)
+
+        assert collection.thumbnail_media_params == {}
+        assert collection.original_media_params == {}
+
+    def test_urls_without_params_are_base_url_joined_with_uri(
+        self, write_config, dummy_files
+    ):
+        collection = self._collection(write_config, dummy_files)
+
+        assert (
+            collection.thumbnail_url("a/b.jpg")
+            == "https://localhost:5000/thumbs/a/b.jpg"
+        )
+        assert (
+            collection.original_url("a/b.mp4")
+            == "https://localhost:5000/originals/a/b.mp4"
+        )
+
+    def test_urls_append_their_own_params_as_a_query_string(
+        self, write_config, dummy_files
+    ):
+        collection = self._collection(
+            write_config,
+            dummy_files,
+            thumbnail_media_params={"token": "thumb-tok"},
+            original_media_params={"token": "orig tok", "dl": "1"},
+        )
+
+        assert collection.thumbnail_media_params == {"token": "thumb-tok"}
+        assert (
+            collection.thumbnail_url("a/b.jpg")
+            == "https://localhost:5000/thumbs/a/b.jpg?token=thumb-tok"
+        )
+        assert (
+            collection.original_url("a/b.mp4")
+            == "https://localhost:5000/originals/a/b.mp4?token=orig+tok&dl=1"
+        )
+
+    def test_params_extend_an_existing_query_string(self, write_config, dummy_files):
+        collection = self._collection(
+            write_config, dummy_files, original_media_params={"token": "tok"}
+        )
+
+        assert (
+            collection.original_url("video.mp4?t=10")
+            == "https://localhost:5000/originals/video.mp4?t=10&token=tok"
+        )
+
+
 class TestCollectionConfigIndexResolution:
     """get_index / resolve_index / resolve_index_for_embedding_type.
 

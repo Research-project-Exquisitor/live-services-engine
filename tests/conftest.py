@@ -81,6 +81,11 @@ def index_toml(
     return "\n".join(lines)
 
 
+def _inline_table(values: dict) -> str:
+    """Render a flat dict of strings as a TOML inline table."""
+    return "{ " + ", ".join(f'{k} = "{v}"' for k, v in values.items()) + " }"
+
+
 def collection_toml(
     name: str,
     database_file: str,
@@ -90,11 +95,13 @@ def collection_toml(
     enabled: bool = True,
     log_directory: Optional[str] = None,
     preload_all_indexes: Optional[bool] = None,
+    thumbnail_media_params: Optional[dict] = None,
+    original_media_params: Optional[dict] = None,
 ) -> str:
     """Render a `[[collections]]` table, with one or more nested index tables.
 
-    `preload_all_indexes` is omitted unless given, exercising the
-    schema's own default (eager-load only the default index).
+    `preload_all_indexes` and the `*_media_params` inline tables are
+    omitted unless given, exercising the schema's own defaults.
     """
     lines = [
         "[[collections]]",
@@ -108,6 +115,12 @@ def collection_toml(
         lines.append(f'log_directory = "{log_directory}"')
     if preload_all_indexes is not None:
         lines.append(f"preload_all_indexes = {str(preload_all_indexes).lower()}")
+    if thumbnail_media_params is not None:
+        lines.append(
+            f"thumbnail_media_params = {_inline_table(thumbnail_media_params)}"
+        )
+    if original_media_params is not None:
+        lines.append(f"original_media_params = {_inline_table(original_media_params)}")
     lines.append("")
     lines.append(indexes)
     return "\n".join(lines)

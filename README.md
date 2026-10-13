@@ -57,6 +57,9 @@ enabled = true
 database_file = "./data/my_collection/my_collection.db"
 thumbnail_media_url = "https://localhost:5001/my_collection"
 original_media_url = "https://localhost:5001/my_collection"
+# Optional query params appended to media URLs, e.g. a media server token.
+# thumbnail_media_params = { token = "your-token" }
+# original_media_params = { token = "your-token" }
 
   [[collections.indexes]]
   name = "CLIP"

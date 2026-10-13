@@ -66,8 +66,8 @@ class ItemService:
             "name": item["item_id"],
             "mediaId": request.mediaId,
             "mediaType": item["source_type"],
-            "thumbPath": f"{collection_config.thumbnail_media_url}/{item['thumbnail_uri']}",
-            "srcPath": f"{collection_config.original_media_url}/{item['media_uri']}",
+            "thumbPath": collection_config.thumbnail_url(item["thumbnail_uri"]),
+            "srcPath": collection_config.original_url(item["media_uri"]),
             "groupId": item["group"],
         }
 

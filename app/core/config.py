@@ -53,6 +53,7 @@ Example TOML layout::
     database_file = "/data/db.sqlite"
     thumbnail_media_url = "https://cdn.example.com/thumbs"
     original_media_url = "https://cdn.example.com/originals"
+    original_media_params = { token = "secret" }  # optional query params
 
       [[collections.indexes]]
       name = "CLIP"
@@ -70,6 +71,7 @@ import os
 import tomllib
 from pathlib import Path
 from typing import Dict, List, Optional
+from urllib.parse import urlencode
 
 from pydantic import BaseModel, Field, field_validator
 from pydantic_core.core_schema import ValidationInfo
@@ -193,12 +195,38 @@ class IndexConfig(BaseModel):
         return v
 
 
+def _build_media_url(base_url: str, uri: str, params: Dict[str, str]) -> str:
+    """Join a base URL and media URI, appending `params` as a query string.
+
+    Uses '&' instead of '?' when the URI already carries a query string.
+    """
+    url = f"{base_url}/{uri}"
+    if not params:
+        return url
+    separator = "&" if "?" in url else "?"
+    return f"{url}{separator}{urlencode(params)}"
+
+
 class CollectionConfig(BaseModel):
     """Configuration for a single collection."""
 
     database_file: str = Field(..., description="Path to database file")
     thumbnail_media_url: str = Field(..., description="Base URL for thumbnails")
     original_media_url: str = Field(..., description="Base URL for original media")
+    thumbnail_media_params: Dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Query parameters appended to every thumbnail URL, e.g. an access "
+            "token required by the media server."
+        ),
+    )
+    original_media_params: Dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Query parameters appended to every original media URL, e.g. an "
+            "access token required by the media server."
+        ),
+    )
     indexes: List[IndexConfig] = Field(
         ..., min_length=1, description="Indexes available for this collection"
     )
@@ -243,6 +271,18 @@ class CollectionConfig(BaseModel):
                     f"has multiple indexes (found {len(defaults)})"
                 )
         return v
+
+    def thumbnail_url(self, uri: str) -> str:
+        """Full URL for a thumbnail URI, including any configured query params."""
+        return _build_media_url(
+            self.thumbnail_media_url, uri, self.thumbnail_media_params
+        )
+
+    def original_url(self, uri: str) -> str:
+        """Full URL for an original media URI, including any configured query params."""
+        return _build_media_url(
+            self.original_media_url, uri, self.original_media_params
+        )
 
     @property
     def default_index(self) -> IndexConfig:
@@ -380,6 +420,10 @@ class ConfigManager:
                 database_file=collection_data["database_file"],
                 thumbnail_media_url=collection_data["thumbnail_media_url"],
                 original_media_url=collection_data["original_media_url"],
+                thumbnail_media_params=collection_data.get(
+                    "thumbnail_media_params", {}
+                ),
+                original_media_params=collection_data.get("original_media_params", {}),
                 log_directory=collection_data.get("log_directory", "./logs/"),
                 preload_all_indexes=collection_data.get("preload_all_indexes", False),
                 indexes=indexes,
