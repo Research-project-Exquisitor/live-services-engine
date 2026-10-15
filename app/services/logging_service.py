@@ -30,18 +30,18 @@ structured audit trail of every user interaction with the LSE:
     High-level facade consumed by route handlers and services.  It provides
     semantic methods (``log_search_request``, ``log_item_request``,
     ``log_session_init``, ``log_error``, etc.) that format the audit entry
-    and delegate to `AuditLogger`.  It also mirrors errors to the standard
-    Python ``logging`` system for operational monitoring.
+    and delegate to `AuditLogger`.  It also mirrors errors to the diagnostic
+    log (Loguru) for operational monitoring.
 """
 
 import asyncio
-import logging
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 import msgpack
 from filelock import FileLock
+from loguru import logger
 
 from ..core.exceptions import LSEException
 
@@ -85,9 +85,9 @@ class AuditLogger:
                     break
                 self._write_log_sync(log_entry)
                 self._queue.task_done()
-            except Exception as e:
-                # Log to system logger if audit logging fails
-                logging.error(f"Failed to write audit log: {e}")
+            except Exception:
+                # Log to the diagnostic log if audit logging fails
+                logger.exception("Failed to write audit log")
 
     def _write_log_sync(self, log_entry: Dict[str, Any]):
         """Synchronously write log entry to file."""
@@ -152,8 +152,6 @@ class LoggingService:
         self.audit_logger: AuditLogger = audit_logger
         """Low-level audit logger that serializes entries to disk."""
 
-        self.system_logger: logging.Logger = logging.getLogger(__name__)
-        """Standard Python logger for operational monitoring output."""
 
     async def log_session_init(self, session: str, collections: list):
         """Log session initialization."""
@@ -275,14 +273,14 @@ class LoggingService:
             },
         )
 
-        # Also log to system logger
-        self.system_logger.error(
-            f"{type(error).__name__}: {error}",
-            extra={
-                "session": session,
-                "context": context,
-                "error_details": getattr(error, "details", {}),
-            },
+        # Also log to the diagnostic log
+        logger.error(
+            "{}: {} (session={}, context={}, details={})",
+            type(error).__name__,
+            error,
+            session,
+            context,
+            getattr(error, "details", {}),
         )
 
     async def start(self):
