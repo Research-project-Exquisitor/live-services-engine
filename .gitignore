@@ -263,7 +263,6 @@ $RECYCLE.BIN/
 # Windows shortcuts
 *.lnk
 
-dres.txt
 
 app/__pycache__
 

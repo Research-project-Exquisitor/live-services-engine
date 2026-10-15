@@ -31,7 +31,7 @@ filters
     recursive filter expression tree compiled to SQL by `db_helper`.
 search
     `TextSearchRequest`, `RFSearchRequest`, `FacetedSearchRequest`,
-    `AggregationSearchRequest`, `SubmitRequest` -- search endpoint payloads.
+    `AggregationSearchRequest` -- search endpoint payloads.
 items
     `ItemRequest`, `ItemDetailRequest`, `IsExcludedRequest`, `ItemInfo`,
     `ClearItemSetRequest` -- item endpoint payloads.
@@ -55,7 +55,6 @@ from .search import (
     RFSearchRequest,
     FacetedSearchRequest,
     AggregationSearchRequest,
-    SubmitRequest,
 )
 from .items import (
     ItemRequest,
@@ -81,7 +80,6 @@ __all__ = [
     "RFSearchRequest",
     "FacetedSearchRequest",
     "AggregationSearchRequest",
-    "SubmitRequest",
     "ItemRequest",
     "ItemDetailRequest",
     "IsExcludedRequest",
