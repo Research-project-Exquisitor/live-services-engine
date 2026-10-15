@@ -9,7 +9,7 @@ port = 8000
 reload = true
 
 [logging]
-# Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+# Logging level: TRACE, DEBUG, INFO or ERROR (default INFO)
 level = "INFO"
 
 # ============================================================================

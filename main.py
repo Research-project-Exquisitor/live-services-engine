@@ -40,23 +40,29 @@ Usage::
     uv run python main.py
 """
 
-import logging
+import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from loguru import logger
 
 from app.core.models import container, ApplicationContainer
 from app.core.exceptions import LSEException, ConfigurationError
+from app.core.logging_setup import setup_logging
 from app.api.routes import search, items, admin
 from app.repositories.database_repository import DatabaseRepository
 from app.services.logging_service import AuditLogger, LoggingService
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-"""Module-level logger for startup, shutdown, and health-check messages."""
-
 container: ApplicationContainer = container
+
+try:
+    setup_logging(container.config_manager.config.log_level)
+except ConfigurationError:
+    # If the config can't be read, start logging at INFO so the
+    # configuration error can be logged properly during startup.
+    setup_logging("INFO")
 
 
 @asynccontextmanager
@@ -90,11 +96,11 @@ async def lifespan(app: FastAPI):
 
         logger.info("LSE application initialized successfully")
 
-    except ConfigurationError as e:
-        logger.error(f"Configuration error during startup: {e}")
+    except ConfigurationError:
+        logger.exception("Configuration error during startup")
         raise
-    except Exception as e:
-        logger.error(f"Unexpected error during startup: {e}")
+    except Exception:
+        logger.exception("Unexpected error during startup")
         raise
 
     yield
@@ -105,8 +111,8 @@ async def lifespan(app: FastAPI):
         if hasattr(app.state, "logging_service"):
             await app.state.logging_service.stop()
         logger.info("LSE application shutdown completed")
-    except Exception as e:
-        logger.error(f"Error during shutdown: {e}")
+    except Exception:
+        logger.exception("Error during shutdown")
 
 
 app = FastAPI(
@@ -125,7 +131,23 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Exq-Request-Id"],
 )
+
+
+@app.middleware("http")
+async def log_context(request: Request, call_next):
+    """Attach the session and request ID to every diagnostic log line.
+
+    The client sends ``X-Exq-Session`` and ``X-Exq-Request-Id``. A request
+    without an ID gets one here, and the ID is returned in the response.
+    """
+    session = request.headers.get("X-Exq-Session", "-")[:64]
+    request_id = request.headers.get("X-Exq-Request-Id", "")[:64] or uuid.uuid4().hex[:12]
+    with logger.contextualize(session=session, request_id=request_id):
+        response = await call_next(request)
+    response.headers["X-Exq-Request-Id"] = request_id
+    return response
 
 # Include routers
 app.include_router(search.router)
@@ -137,13 +159,8 @@ app.include_router(admin.router)
 @app.exception_handler(LSEException)
 async def lse_exception_handler(request, exc: LSEException):
     """Handle LSE-specific exceptions."""
-    logger.error(
-        f"LSE Exception: {exc.message}",
-        extra={
-            "exception_type": type(exc).__name__,
-            "details": exc.details,
-            "path": request.url.path,
-        },
+    logger.opt(exception=exc).error(
+        "{} on {}: {} {}", type(exc).__name__, request.url.path, exc.message, exc.details
     )
 
     # Log to audit system if available
@@ -155,9 +172,10 @@ async def lse_exception_handler(request, exc: LSEException):
                 context={"path": request.url.path, "method": request.method},
             )
         except Exception:
-            pass  # Don't fail the request if logging fails
+            # Don't fail the request if audit logging fails
+            logger.exception("Failed to write LSE exception to the audit log")
 
-    return HTTPException(status_code=400, detail=exc.message)
+    return JSONResponse(status_code=400, content={"detail": exc.message})
 
 
 # Health check endpoint
@@ -202,7 +220,7 @@ async def health_check():
         }
 
     except Exception as e:
-        logger.error(f"Health check failed: {e}")
+        logger.exception("Health check failed")
         return {"status": "unhealthy", "reason": str(e)}
 
 
@@ -236,7 +254,10 @@ if __name__ == "__main__":
             port=config.port,
             reload=config.reload,
             log_level=config.log_level.lower(),
+            # Keep uvicorn from installing its own handlers; its records are
+            # forwarded to Loguru by `setup_logging`.
+            log_config=None,
         )
-    except Exception as e:
-        logger.error(f"Failed to start server: {e}")
+    except Exception:
+        logger.exception("Failed to start server")
         exit(1)
