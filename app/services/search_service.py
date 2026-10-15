@@ -109,6 +109,8 @@ class SearchService:
         if not isinstance(strategy, TextSearchStrategyABC):
             raise SearchError(f"Strategy {strategy_name} does not support text search")
 
+        # Old audit-log timing in whole seconds. Phase 3 replaces start_time and
+        # completion_time with one millisecond duration used by both logs.
         start_time = int(time.time())
         started = time.perf_counter()
         logger.debug("{} search started in {}", strategy_name, request.session_info.collection)
@@ -150,6 +152,8 @@ class SearchService:
         if not isinstance(strategy, RFSearchStrategyABC):
             raise SearchError("RF strategy not properly configured")
 
+        # Old audit-log timing in whole seconds. Phase 3 replaces start_time and
+        # completion_time with one millisecond duration used by both logs.
         start_time = int(time.time())
         started = time.perf_counter()
         logger.debug("rf search started in {}", request.session_info.collection)
@@ -193,6 +197,8 @@ class SearchService:
         if not isinstance(strategy, FacetedSearchStrategyABC):
             raise SearchError("Faceted strategy not properly configured")
 
+        # Old audit-log timing in whole seconds. Phase 3 replaces start_time and
+        # completion_time with one millisecond duration used by both logs.
         start_time = int(time.time())
         started = time.perf_counter()
         logger.debug("faceted search started in {}", request.session_info.collection)

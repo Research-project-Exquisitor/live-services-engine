@@ -46,6 +46,8 @@ from loguru import logger
 from ..core.exceptions import LSEException
 
 
+# Old research writer. Phase 3 replaces it with `EventLog` (event_log.py)
+# and removes this class, msgpack and logs/audit.log.
 class AuditLogger:
     """Handles audit logging with structured format and async processing."""
 
@@ -145,6 +147,8 @@ class AuditLogger:
         self._write_log_sync(log_entry)
 
 
+# Stays in Phase 3, but its methods will build `LogEvent`s and write them to
+# `EventLog` instead of free-text entries to `AuditLogger`.
 class LoggingService:
     """Service for managing all logging operations."""
 
