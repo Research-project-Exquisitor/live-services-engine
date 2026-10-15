@@ -53,6 +53,7 @@ from app.core.exceptions import LSEException, ConfigurationError
 from app.core.logging_setup import setup_logging
 from app.api.routes import search, items, admin
 from app.repositories.database_repository import DatabaseRepository
+from app.services.event_log import EventLog
 from app.services.logging_service import AuditLogger, LoggingService
 
 container: ApplicationContainer = container
@@ -90,8 +91,12 @@ async def lifespan(app: FastAPI):
         logging_service = LoggingService(audit_logger)
         await logging_service.start()
 
+        event_log = EventLog(f"{log_dir}/raw")
+        await event_log.start()
+
         # Store in app state for dependency injection
         app.state.logging_service = logging_service
+        app.state.event_log = event_log
         app.state.container = container
 
         logger.info("LSE application initialized successfully")
@@ -110,6 +115,8 @@ async def lifespan(app: FastAPI):
         logger.info("Shutting down LSE application...")
         if hasattr(app.state, "logging_service"):
             await app.state.logging_service.stop()
+        if hasattr(app.state, "event_log"):
+            await app.state.event_log.stop()
         logger.info("LSE application shutdown completed")
     except Exception:
         logger.exception("Error during shutdown")

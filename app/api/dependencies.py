@@ -43,6 +43,7 @@ from ..core.models import ApplicationContainer, CLIPModelManager, TextModelManag
 from ..services.search_service import SearchService
 from ..services.item_service import ItemService
 from ..services.logging_service import LoggingService
+from ..services.event_log import EventLog
 
 
 def get_container() -> ApplicationContainer:
@@ -108,3 +109,8 @@ def get_item_service(
 def get_logging_service(request: Request) -> LoggingService:
     """Get the logging service from app state."""
     return request.app.state.logging_service
+
+
+def get_event_log(request: Request) -> EventLog:
+    """Get the research event log from app state."""
+    return request.app.state.event_log
