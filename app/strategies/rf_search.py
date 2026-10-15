@@ -47,6 +47,7 @@ from typing import Dict, List, Optional
 import numpy as np
 from sklearn.linear_model import SGDClassifier
 from numpy.random import default_rng
+from loguru import logger
 
 from app.core.config import IndexConfig, LSEConfig
 from app.core.models import CLIPModelManager, TextModelManager
@@ -210,8 +211,11 @@ class RFSearchStrategy(VectorSearchMixin, RFSearchStrategyABC):
                 )
                 positive_samples.extend(pseudo_rf)
             except Exception:
-                # If pseudo RF fails, continue with just the provided positive samples
-                pass
+                # If pseudo RF fails, continue with just the provided positive
+                # samples. This changes the results, so record it.
+                logger.exception(
+                    "Pseudo-RF expansion failed; continuing with the given positive samples"
+                )
 
         # If no positive samples and no query, fall back to random index
         # positions directly -- these aren't media IDs, so they don't go
