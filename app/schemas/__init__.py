@@ -33,8 +33,9 @@ search
     `TextSearchRequest`, `RFSearchRequest`, `FacetedSearchRequest`,
     `AggregationSearchRequest` -- search endpoint payloads.
 items
-    `ItemRequest`, `ItemDetailRequest`, `IsExcludedRequest`, `ItemInfo`,
-    `ClearItemSetRequest` -- item endpoint payloads.
+    `ItemRequest`, `ItemDetailRequest`, `RelatedItemsRequest`,
+    `IsExcludedRequest`, `ItemInfo`, `ClearItemSetRequest` -- item endpoint
+    payloads.
 logging
     `ClientEventRequest` -- client-side event logging payload.
 """
@@ -59,6 +60,7 @@ from .search import (
 from .items import (
     ItemRequest,
     ItemDetailRequest,
+    RelatedItemsRequest,
     IsExcludedRequest,
     ItemInfo,
     ClearItemSetRequest,
@@ -82,6 +84,7 @@ __all__ = [
     "AggregationSearchRequest",
     "ItemRequest",
     "ItemDetailRequest",
+    "RelatedItemsRequest",
     "IsExcludedRequest",
     "ItemInfo",
     "ClearItemSetRequest",

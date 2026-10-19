@@ -437,28 +437,65 @@ class DatabaseRepository:
                 f"Failed to retrieve media metadata for media {media_id}: {e}"
             )
 
-    def get_related_items(self, collection: str, group_id: int) -> Optional[List[int]]:
+    def get_related_items(
+        self,
+        collection: str,
+        group_id: int,
+        sort_by: Optional[int] = None,
+        sort_order: str = "asc",
+    ) -> Optional[List[int]]:
         """Retrieve related items for the specified collection.
 
         Args:
             collection: Name of the collection
+            group_id: Media ID of the group whose members to return
+            sort_by: Optional tagset ID whose values order the result. For
+                multi-valued tagsets the smallest value is used ascending and
+                the largest descending. Items without a value come last.
+            sort_order: ``"asc"`` or ``"desc"``
 
         Returns:
-            Cached related items for a specific item
+            Media IDs of the items in the group
         """
         cursor = None
         try:
             cursor = self._db_connection[collection].cursor()
             related_items = []
             if self._db_type[collection] == "sqlite":
-                rows = cursor.execute(
-                    """
-                    SELECT id
-                    FROM medias
-                    WHERE group_id = ?
-                    """,
-                    [group_id],
-                ).fetchall()
+                if sort_by is None:
+                    rows = cursor.execute(
+                        """
+                        SELECT id
+                        FROM medias
+                        WHERE group_id = ?
+                        """,
+                        [group_id],
+                    ).fetchall()
+                else:
+                    if sort_order not in ("asc", "desc"):
+                        raise DatabaseError(f"Invalid sort order: {sort_order!r}")
+                    tagtype_row = cursor.execute(
+                        "SELECT tagtype_id FROM tagsets WHERE id = ?", [sort_by]
+                    ).fetchone()
+                    if tagtype_row is None:
+                        raise DatabaseError(f"Tagset {sort_by} not found")
+                    tagtype = self._tagtype_cache[collection][tagtype_row[0]]
+                    agg, direction = (
+                        ("MIN", "ASC") if sort_order == "asc" else ("MAX", "DESC")
+                    )
+                    rows = cursor.execute(
+                        f"""
+                        SELECT m.id,
+                               (SELECT {agg}(t.value)
+                                FROM taggings tgs
+                                JOIN {tagtype}_tags t ON t.id = tgs.tag_id
+                                WHERE tgs.media_id = m.id AND t.tagset_id = ?) AS sort_value
+                        FROM medias m
+                        WHERE m.group_id = ?
+                        ORDER BY sort_value IS NULL, sort_value {direction}
+                        """,
+                        [sort_by, group_id],
+                    ).fetchall()
                 if rows:
                     related_items = [row[0] for row in rows]
             return related_items

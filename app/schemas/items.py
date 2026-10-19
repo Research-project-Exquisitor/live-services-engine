@@ -20,6 +20,8 @@ These models are used by the ``/exq/item/*`` endpoints and `ItemService`.
 """
 
 from __future__ import annotations
+from typing import Literal, Optional
+
 from pydantic import BaseModel
 
 from .session import SessionInfo
@@ -45,6 +47,18 @@ class ItemDetailRequest(ItemRequest):
     Kept only so the deprecated ``/exq/item/details`` endpoint keeps its
     request model.
     """
+
+
+class RelatedItemsRequest(ItemRequest):
+    """Request model for retrieving the items related to (grouped under) an item."""
+
+    sortBy: Optional[int] = None
+    """Optional tagset ID whose values order the related items; unsorted if
+    omitted."""
+
+    sortOrder: Literal["asc", "desc"] = "asc"
+    """Direction to sort by ``sortBy``. Items without a value in that
+    tagset are placed last in both directions."""
 
 
 class IsExcludedRequest(BaseModel):

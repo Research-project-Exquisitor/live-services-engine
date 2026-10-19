@@ -22,7 +22,8 @@ Defines POST endpoints under ``/exq/item/``:
   plus ``metadata`` for selected tagsets/filters when ``filterIds`` is given.
 - ``/base`` -- deprecated alias of ``/info``.
 - ``/details`` -- deprecated; ``metadata`` only, derived from ``/info``.
-- ``/related`` -- IDs of items sharing the same ``group_id``.
+- ``/related`` -- IDs of items sharing the same ``group_id``, optionally
+  sorted by a tagset's values (``sortBy``, ``sortOrder``).
 - ``/excluded`` -- check whether an item belongs to any excluded group.
 
 All endpoints delegate to `ItemService` and schedule background audit-log
@@ -35,7 +36,12 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from app.core.exceptions import DatabaseError
 
-from ...schemas import ItemDetailRequest, ItemRequest, IsExcludedRequest
+from ...schemas import (
+    ItemDetailRequest,
+    ItemRequest,
+    IsExcludedRequest,
+    RelatedItemsRequest,
+)
 from ...services.item_service import ItemService
 from ...services.logging_service import LoggingService
 from ..dependencies import get_item_service, get_logging_service
@@ -114,14 +120,16 @@ async def get_item_detailed_info(
 
 @router.post("/item/related")
 async def get_related_items(
-    request: ItemRequest,
+    request: RelatedItemsRequest,
     background_tasks: BackgroundTasks,
     item_service: ItemService = Depends(get_item_service),
     logging_service: LoggingService = Depends(get_logging_service),
 ) -> Dict[str, List[int]]:
-    """Get related items for an item."""
+    """Get related items for an item, optionally sorted by a tagset's values."""
     try:
-        result = item_service.get_related_items(request)
+        result = item_service.get_related_items(
+            request, sort_by=request.sortBy, sort_order=request.sortOrder
+        )
 
         base_info = item_service.get_item_base_info(
             ItemRequest(mediaId=request.mediaId, session_info=request.session_info)

@@ -305,3 +305,82 @@ class TestErrors:
         repo = _load(multi_index_db_config)
         with pytest.raises(DatabaseError):
             repo.get_total_items("testcol", "does-not-exist")
+
+
+@pytest.fixture
+def related_db_config(multi_index_db_config):
+    """Extends the base database with sortable tagsets for group 100.
+
+    - media 12 joins group 100 (no index mapping, no sort values).
+    - 'Frame' (numerical_int): 10 -> 50, 11 -> 20 and 60 (multi-valued).
+    - 'Label' (alphanumerical): 10 -> 'b', 11 -> 'a', 12 -> 'c'.
+    """
+    db_file = multi_index_db_config.collection_configs["testcol"].database_file
+    conn = sqlite3.connect(str(db_file))
+    conn.executescript(
+        """
+        CREATE TABLE alphanumerical_tags (
+            id INTEGER PRIMARY KEY,
+            value TEXT,
+            tagset_id INTEGER
+        );
+
+        INSERT INTO tag_types (id, description) VALUES (2, 'alphanumerical');
+        INSERT INTO tagsets (id, name, tagtype_id) VALUES
+            (3, 'Frame', 1), (4, 'Label', 2);
+
+        INSERT INTO medias (id, source, source_type, thumbnail_uri, group_id) VALUES
+            (12, 'img3.jpg', 1, 'thumb4.jpg', 100);
+
+        INSERT INTO numerical_int_tags (id, value, tagset_id) VALUES
+            (3000, 50, 3), (3001, 20, 3), (3002, 60, 3);
+        INSERT INTO alphanumerical_tags (id, value, tagset_id) VALUES
+            (4000, 'b', 4), (4001, 'a', 4), (4002, 'c', 4);
+        INSERT INTO taggings (media_id, tag_id) VALUES
+            (10, 3000), (11, 3001), (11, 3002),
+            (10, 4000), (11, 4001), (12, 4002);
+        """
+    )
+    conn.commit()
+    conn.close()
+    return multi_index_db_config
+
+
+class TestGetRelatedItems:
+    def test_unsorted_returns_every_group_member(self, related_db_config):
+        repo = _load(related_db_config)
+        assert sorted(repo.get_related_items("testcol", 100)) == [10, 11, 12]
+
+    def test_sorts_ascending_by_smallest_value(self, related_db_config):
+        repo = _load(related_db_config)
+        assert repo.get_related_items("testcol", 100, sort_by=3) == [11, 10, 12]
+
+    def test_sorts_descending_by_largest_value(self, related_db_config):
+        repo = _load(related_db_config)
+        assert repo.get_related_items(
+            "testcol", 100, sort_by=3, sort_order="desc"
+        ) == [11, 10, 12]
+
+    def test_resolves_the_tagsets_own_tagtype_table(self, related_db_config):
+        repo = _load(related_db_config)
+        assert repo.get_related_items("testcol", 100, sort_by=4) == [11, 10, 12]
+        assert repo.get_related_items(
+            "testcol", 100, sort_by=4, sort_order="desc"
+        ) == [12, 10, 11]
+
+    def test_items_without_a_value_come_last(self, related_db_config):
+        repo = _load(related_db_config)
+        assert repo.get_related_items("testcol", 100, sort_by=3)[-1] == 12
+        assert repo.get_related_items(
+            "testcol", 100, sort_by=3, sort_order="desc"
+        )[-1] == 12
+
+    def test_unknown_tagset_raises(self, related_db_config):
+        repo = _load(related_db_config)
+        with pytest.raises(DatabaseError):
+            repo.get_related_items("testcol", 100, sort_by=999)
+
+    def test_invalid_sort_order_raises(self, related_db_config):
+        repo = _load(related_db_config)
+        with pytest.raises(DatabaseError):
+            repo.get_related_items("testcol", 100, sort_by=3, sort_order="up")

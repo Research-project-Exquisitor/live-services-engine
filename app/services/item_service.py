@@ -25,12 +25,13 @@ Key operations:
 - **Base info** -- media URI, thumbnail path, source type, group ID, plus
   metadata values for selected tagsets/filters when ``filterIds`` is given.
 - **Detailed info** -- deprecated; metadata values only, derived from base info.
-- **Related items** -- other media items sharing the same ``group_id``.
+- **Related items** -- other media items sharing the same ``group_id``,
+  optionally sorted by a tagset's values.
 - **Exclusion check** -- whether a given item belongs to any excluded group,
   used by the UI to grey-out or hide items during interactive search.
 """
 
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any
 
 from app.core.config import ConfigManager
 from app.repositories.database_repository import DatabaseRepository
@@ -91,11 +92,16 @@ class ItemService:
         """
         return self.get_item_base_info(request).get("metadata", {})
 
-    def get_related_items(self, request: ItemRequest) -> Dict[str, List[int]]:
-        """Get related items for an item."""
+    def get_related_items(
+        self,
+        request: ItemRequest,
+        sort_by: Optional[int] = None,
+        sort_order: str = "asc",
+    ) -> Dict[str, List[int]]:
+        """Get related items for an item, optionally sorted by a tagset's values."""
         collection = request.session_info.collection
         related_items = self.database_repo.get_related_items(
-            collection, request.mediaId
+            collection, request.mediaId, sort_by=sort_by, sort_order=sort_order
         )
         return {"related": related_items}
 
