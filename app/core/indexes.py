@@ -253,6 +253,16 @@ class FaissIndex(BaseIndex):
         distances, top_k = self.index.search(query.reshape(1, -1), k)
         return -1, top_k[0].tolist(), distances[0].tolist()
 
+    def _search_params(
+        self, nprobe: Optional[int], ef_search: Optional[int]
+    ) -> Optional[faiss.SearchParameters]:
+        """Per-call scope parameters, so widening never mutates the shared index."""
+        if self.index_type == "ivf":
+            return faiss.SearchParametersIVF(nprobe=nprobe)
+        if self.index_type == "hnsw":
+            return faiss.SearchParametersHNSW(efSearch=ef_search)
+        return None
+
     def incremental_search(
         self,
         query: np.ndarray,
@@ -261,27 +271,47 @@ class FaissIndex(BaseIndex):
         q_id: int = -1,
         resume: bool = False,
     ):
-        cnt = 0
-        res = []
-        curr_k = k
-        while cnt < k:
-            distances, top = self.index.search(query.reshape(1, -1), curr_k)
-            # If the top-k results are less than the current k,
-            # the current search scope is not sufficient
-            if np.where(top != -1)[0].size < curr_k:
-                if self.index_type == "ivf":
-                    self.index.nprobe = self.index.nprobe * 2
-                elif self.index_type == "hnsw":
-                    self.index.hnsw.efSearch = self.index.hnsw.efSearch * 2
-                continue
-            distances, top = distances[0], top[0]
-            for idx, t in enumerate(top):  # [0] since there is only one query
-                if t not in skip_ids:
-                    res.append((t, distances[idx]))
-                    cnt += 1
-                    if cnt == k:
-                        break
-            curr_k = curr_k * 2
+        ntotal = self.index.ntotal
+        if k <= 0 or ntotal == 0:
+            return -1, [], []
+
+        query = query.reshape(1, -1)
+        curr_k = min(k, ntotal)
+        nprobe = self.index.nprobe if self.index_type == "ivf" else None
+        ef_search = self.index.hnsw.efSearch if self.index_type == "hnsw" else None
+
+        while True:
+            distances, top = self.index.search(
+                query, curr_k, params=self._search_params(nprobe, ef_search)
+            )
+            distances, top = distances[0], top[0]  # [0] since there is only one query
+            found = top != -1
+            n_found = int(found.sum())
+
+            # Fewer results than asked for means the search scope is too narrow,
+            # so widen it until it covers the whole index
+            if n_found < curr_k:
+                if self.index_type == "ivf" and nprobe < self.index.nlist:
+                    nprobe = min(nprobe * 2, self.index.nlist)
+                    continue
+                if self.index_type == "hnsw" and ef_search < ntotal:
+                    ef_search = min(ef_search * 2, ntotal)
+                    continue
+
+            # Rebuilt from the full result list each round, since a wider
+            # scope can reorder it
+            res = [
+                (t, d)
+                for t, d in zip(top[found].tolist(), distances[found].tolist())
+                if t not in skip_ids
+            ][:k]
+
+            # Stop once k are found, or once everything has been retrieved,
+            # or once the scope is at its widest and still comes up short
+            if len(res) == k or curr_k >= ntotal or n_found < curr_k:
+                break
+            curr_k = min(curr_k * 2, ntotal)
+
         top_k = [r[0] for r in res]
         distances = [r[1] for r in res]
         return -1, top_k, distances
