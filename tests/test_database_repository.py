@@ -34,6 +34,7 @@ import pytest
 from app.core.config import ConfigManager
 from app.core.exceptions import DatabaseError
 from app.repositories.database_repository import DatabaseRepository
+from app.schemas import ActiveFilters, DBFilter, DBValueConstraint, FilterLeaf
 
 from .conftest import collection_toml, index_toml
 
@@ -384,3 +385,89 @@ class TestGetRelatedItems:
         repo = _load(related_db_config)
         with pytest.raises(DatabaseError):
             repo.get_related_items("testcol", 100, sort_by=3, sort_order="up")
+
+
+def _add_group_media(path: Path, media_id: int, tag_id: int) -> None:
+    """Add a Video group media (no group_id of its own) carrying one tag."""
+    conn = sqlite3.connect(str(path))
+    conn.execute(
+        "INSERT INTO medias (id, source, source_type, thumbnail_uri, group_id) "
+        "VALUES (?, ?, 2, NULL, NULL)",
+        [media_id, f"video{media_id}.mp4"],
+    )
+    conn.execute(
+        "INSERT INTO numerical_int_tags (id, value, tagset_id) VALUES (?, 1, 1)",
+        [tag_id],
+    )
+    conn.execute(
+        "INSERT INTO taggings (media_id, tag_id) VALUES (?, ?)", [media_id, tag_id]
+    )
+    conn.commit()
+    conn.close()
+
+
+@pytest.fixture
+def two_collection_config(write_config, dummy_files, tmp_path):
+    """Two collections whose group medias differ.
+
+    - testcol has group media 100 (tag 5000), parent of medias 10 and 11.
+    - othercol has group media 300 (tag 6000) and no media 100.
+    """
+    collections = []
+    for name, group_id, tag_id in (("testcol", 100, 5000), ("othercol", 300, 6000)):
+        db_path = tmp_path / f"{name}.db"
+        _build_sqlite_db(db_path)
+        _add_group_media(db_path, group_id, tag_id)
+        indexes = index_toml(
+            name="CLIP",
+            index_type="zarr",
+            embeddings_file=dummy_files["embeddings_file"],
+        )
+        collections.append(
+            collection_toml(
+                name=name,
+                database_file=str(db_path),
+                thumbnail_media_url=f"https://localhost:5000/{name}",
+                original_media_url=f"https://localhost:5000/{name}",
+                indexes=indexes,
+            )
+        )
+    path = write_config("\n\n".join(collections))
+    return ConfigManager(str(path)).load_config()
+
+
+def _tag_filter(tag_id: int) -> ActiveFilters:
+    return ActiveFilters(
+        root=FilterLeaf(
+            filter=DBFilter(
+                id=1,
+                tagtype_id=1,
+                constraint=DBValueConstraint(value_ids=[tag_id]),
+            )
+        )
+    )
+
+
+class TestGroupMediaIdsPerCollection:
+    def test_group_filter_expands_after_loading_another_collection(
+        self, two_collection_config
+    ):
+        repo = DatabaseRepository(two_collection_config)
+        for name in ("testcol", "othercol"):
+            db_file = two_collection_config.collection_configs[name].database_file
+            repo.load_database(name, db_file)
+
+        passed = repo.get_filtered_media_ids("testcol", _tag_filter(5000))
+
+        assert sorted(passed) == [10, 11]
+
+    def test_each_collection_keeps_its_own_group_media_ids(
+        self, two_collection_config
+    ):
+        repo = DatabaseRepository(two_collection_config)
+        for name in ("testcol", "othercol"):
+            db_file = two_collection_config.collection_configs[name].database_file
+            repo.load_database(name, db_file)
+
+        assert repo._group_media_ids["testcol"] == {100}
+        assert repo._group_media_ids["othercol"] == {300}

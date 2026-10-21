@@ -84,8 +84,8 @@ class DatabaseRepository:
         ] = {}
         """Reverse mapping: ``collection -> index_name -> media_id -> index_id``."""
 
-        self._group_media_ids: Set[int] = set()
-        """Group Media IDs: A set of all ids for medias that represent a group (e.g., a video)."""
+        self._group_media_ids: Dict[str, Set[int]] = {}
+        """Per-collection ids of the medias that represent a group (e.g., a video)."""
 
         self._tagtype_cache: Dict[str, Dict[int, str]] = {}
         """Per-collection tag-type lookup: ``collection -> tagtype_id -> tagtype_name``."""
@@ -142,7 +142,7 @@ class DatabaseRepository:
                 self._tagtype_cache[collection] = {row[0]: row[1] for row in rows}
             self._item_datapoint_mapping_cache[collection] = {}
             self._rev_item_datapoint_mapping_cache[collection] = {}
-            self._group_media_ids = set([
+            self._group_media_ids[collection] = set([
                 row[0] for row in self._db_connection[collection]
                 .execute(
                     """
@@ -593,7 +593,7 @@ class DatabaseRepository:
             )
             cursor = self._db_connection[collection].cursor()
             passed_ids: Set[int] = {r[0] for r in cursor.execute(query, params).fetchall()}
-            group_ids = passed_ids & self._group_media_ids
+            group_ids = passed_ids & self._group_media_ids.get(collection, set())
             group_medias = set()
             if len(group_ids) > self._sqlite_limit:
                 # Use a dedicated connection so the temp table stays off the shared one.
