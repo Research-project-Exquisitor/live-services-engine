@@ -672,22 +672,22 @@ class DatabaseRepository:
             group_ids = passed_ids & self._group_media_ids
             group_medias = set()
             if len(group_ids) > self._sqlite_limit:
-                if self._db_type[collection] == "sqlite":
-                    cursor.close() # Close existing cursor before opening a new connection for batching
-                    cursor = sqlite3.connect(self._db_path[collection], autocommit=False)
-                cursor.execute("BEGIN")
-                cursor.execute("CREATE TEMPORARY TABLE temp_passed_gid (id INTEGER PRIMARY KEY)")
-                cursor.executemany("INSERT INTO temp_passed_gid (id) VALUES (?)", [(gid,) for gid in group_ids])
-                group_medias = cursor.execute(
-                    """
-                    SELECT id
-                    FROM medias m
-                    WHERE m.group_id IN (SELECT id FROM temp_passed_gid)
-                    """
-                ).fetchall()
-                cursor.execute("DROP TABLE temp_passed_gid")
-                cursor.execute("ROLLBACK")
-                cursor.close()
+                # Use a dedicated connection so the temp table stays off the shared one.
+                # With autocommit=False the transaction is already open on connect, and
+                # closing the connection rolls it back and discards the temp table
+                batch_conn = sqlite3.connect(self._db_path[collection], autocommit=False)
+                try:
+                    batch_conn.execute("CREATE TEMPORARY TABLE temp_passed_gid (id INTEGER PRIMARY KEY)")
+                    batch_conn.executemany("INSERT INTO temp_passed_gid (id) VALUES (?)", [(gid,) for gid in group_ids])
+                    group_medias = batch_conn.execute(
+                        """
+                        SELECT id
+                        FROM medias m
+                        WHERE m.group_id IN (SELECT id FROM temp_passed_gid)
+                        """
+                    ).fetchall()
+                finally:
+                    batch_conn.close()
             else:
                 group_medias = cursor.execute(
                     f"""
