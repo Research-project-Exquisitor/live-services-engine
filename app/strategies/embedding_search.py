@@ -49,6 +49,11 @@ from ..schemas import ActiveFilters
 from ..core.exceptions import SearchError
 
 
+EXACT_SEARCH_THRESHOLD = 10_000
+"""Max filter-passing candidates to score exactly against the embeddings
+array instead of searching the ANN index."""
+
+
 class VectorSearchMixin:
     """Expanding-radius ANN search + ID mapping for an already-resolved
     index, independent of how the query vector was produced or which
@@ -84,7 +89,6 @@ class VectorSearchMixin:
     ) -> List[int]:
         """Search with expanding radius until sufficient results."""
         active_n = n
-        total_items = self.database_repo.get_total_items(collection, index_name)
         skip_ids = set()
         if len(seen_set) != 0:
             skip_ids.update(
@@ -101,12 +105,20 @@ class VectorSearchMixin:
 
         if filters:
             passed_ids = self.database_repo.get_filtered_media_ids(collection, filters)
-            # NOTE: Can use the size of passed_ids to determine if index search is needed
-            #       If it is lower than a certain threshold we can search through the subset with
-            #       the zarr embeddings array directly
             index_passed_ids = self.database_repo.get_index_ids(
                 collection, passed_ids, index_name, skip_unmapped=True
             )
+            candidates = set(index_passed_ids) - skip_ids
+            # A small enough candidate set is cheaper (and exact) to score
+            # directly against the embeddings than to dig out of the ANN
+            # index by skipping everything else.
+            if len(candidates) <= EXACT_SEARCH_THRESHOLD:
+                indices, _ = self.index_repo.search_subset(
+                    collection, query_features, active_n, candidates, index_name=index_name
+                )
+                return self.database_repo.get_media_ids(collection, indices, index_name)
+
+            total_items = self.database_repo.get_total_items(collection, index_name)
             index_skip_ids = set(range(total_items)) - set(index_passed_ids)
             skip_ids.update(index_skip_ids)
 

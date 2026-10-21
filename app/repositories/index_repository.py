@@ -171,6 +171,44 @@ class IndexRepository:
                 f"Search failed for collection {collection!r}, index {index_name!r}: {e}"
             )
 
+    def search_subset(
+        self,
+        collection: str,
+        query_vector: np.ndarray,
+        k: int,
+        candidate_ids: Set[int],
+        index_name: Optional[str] = None,
+    ) -> Tuple[List[int], List[float]]:
+        """Exact dot-product search restricted to candidate_ids (index positions).
+
+        Scores only the candidate rows of the embeddings array rather than
+        going through the ANN index, so it works for every index_type --
+        each one is required to provide embeddings_file.
+        """
+        if not candidate_ids or k <= 0:
+            return [], []
+
+        index_name = self._resolve_index_name(collection, index_name)
+        emb_arr = self.get_embeddings_array(collection, index_name)
+
+        try:
+            # Sorted so the orthogonal selection reads chunks in order
+            ids = np.fromiter(candidate_ids, dtype=np.int64, count=len(candidate_ids))
+            ids.sort()
+            scores = emb_arr.oindex[ids] @ query_vector.reshape(-1)
+
+            if k < len(ids):
+                top = np.argpartition(scores, -k)[-k:]
+                top = top[np.argsort(scores[top])[::-1]]
+            else:
+                top = np.argsort(scores)[::-1]
+
+            return ids[top].tolist(), scores[top].tolist()
+        except Exception as e:
+            raise IndexError(
+                f"Subset search failed for collection {collection!r}, index {index_name!r}: {e}"
+            )
+
     def get_embeddings_array(
         self, collection: str, index_name: Optional[str] = None
     ) -> zarr.Array:

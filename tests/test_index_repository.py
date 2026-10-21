@@ -138,6 +138,42 @@ class TestPreload:
         assert ("testcol", "extra_idx") in repo._embeddings_zarr
 
 
+class TestSearchSubset:
+    # Fixture rows are [0,1,2], [3,4,5], [6,7,8], [9,10,11], so against
+    # [1,0,0] each row scores its first element: 0, 3, 6, 9.
+    query = np.array([[1.0, 0.0, 0.0]], dtype="f4")
+
+    def test_returns_top_k_in_descending_score_order(self, multi_index_config):
+        repo = IndexRepository(multi_index_config)
+        indices, distances = repo.search_subset("testcol", self.query, 2, {0, 1, 2, 3})
+        assert indices == [3, 2]
+        assert distances == [9.0, 6.0]
+
+    def test_only_returns_candidates(self, multi_index_config):
+        repo = IndexRepository(multi_index_config)
+        indices, _ = repo.search_subset("testcol", self.query, 2, {0, 2})
+        assert indices == [2, 0]
+
+    def test_k_larger_than_candidates_returns_all_sorted(self, multi_index_config):
+        repo = IndexRepository(multi_index_config)
+        indices, _ = repo.search_subset("testcol", self.query, 10, {1, 3, 0})
+        assert indices == [3, 1, 0]
+
+    def test_empty_candidates_returns_nothing(self, multi_index_config):
+        repo = IndexRepository(multi_index_config)
+        assert repo.search_subset("testcol", self.query, 5, set()) == ([], [])
+
+    def test_uses_named_index_embeddings(self, multi_index_config, tmp_path):
+        extra = zarr.open_group(str(tmp_path / "extra.zarr"), mode="r+")
+        extra["embeddings"][:] = -np.arange(12).reshape(4, 3)
+
+        repo = IndexRepository(multi_index_config)
+        indices, _ = repo.search_subset(
+            "testcol", self.query, 2, {0, 1, 2, 3}, index_name="extra_idx"
+        )
+        assert indices == [0, 1]
+
+
 class TestClearCache:
     def test_clear_cache_for_one_collection_leaves_others_intact(
         self, write_config, dummy_files, tmp_path
