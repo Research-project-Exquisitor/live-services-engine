@@ -20,6 +20,8 @@ Defines POST endpoints under ``/exq/item/``:
 
 - ``/info`` -- basic item info (media URI, thumbnail, source type, group),
   plus ``metadata`` for selected tagsets/filters when ``filterIds`` is given.
+- ``/info/batch`` returns the ``/info`` result for many items at once, with
+  unknown IDs listed under ``missing``.
 - ``/base`` -- deprecated alias of ``/info``.
 - ``/details`` -- deprecated; ``metadata`` only, derived from ``/info``.
 - ``/related`` -- IDs of items sharing the same ``group_id``, optionally
@@ -37,6 +39,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from app.core.exceptions import DatabaseError
 
 from ...schemas import (
+    ItemBatchRequest,
     ItemDetailRequest,
     ItemRequest,
     IsExcludedRequest,
@@ -63,7 +66,7 @@ async def get_item_base_info(
     existing clients.
     """
     try:
-        result = item_service.get_item_base_info(request)
+        result = item_service.get_item_info(request)
 
         background_tasks.add_task(
             logging_service.log_item_request,
@@ -74,6 +77,41 @@ async def get_item_base_info(
             request.mediaId,
             result["name"],
             {"mediaType": result["mediaType"]},
+        )
+
+        return result
+
+    except DatabaseError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.post("/item/info/batch")
+async def get_items_base_info(
+    request: ItemBatchRequest,
+    background_tasks: BackgroundTasks,
+    item_service: ItemService = Depends(get_item_service),
+    logging_service: LoggingService = Depends(get_logging_service),
+) -> Dict[str, List[Any]]:
+    """Get basic information for many items in one call.
+
+    Each entry under ``items`` matches what ``/item/info`` returns for that
+    ID. IDs not found in the collection are listed under ``missing``
+    instead of failing the request.
+    """
+    try:
+        result = item_service.get_items_info(request)
+
+        background_tasks.add_task(
+            logging_service.log_item_request,
+            "Get Info For Items",
+            request.session_info.session,
+            request.session_info.modelId,
+            request.session_info.collection,
+            request.mediaIds,
+            [item["name"] for item in result["items"]],
+            {"missing": result["missing"]},
         )
 
         return result
@@ -131,7 +169,7 @@ async def get_related_items(
             request, sort_by=request.sortBy, sort_order=request.sortOrder
         )
 
-        base_info = item_service.get_item_base_info(
+        info = item_service.get_item_info(
             ItemRequest(mediaId=request.mediaId, session_info=request.session_info)
         )
 
@@ -142,7 +180,7 @@ async def get_related_items(
             request.session_info.modelId,
             request.session_info.collection,
             request.mediaId,
-            base_info["name"],
+            info["name"],
         )
 
         return result
@@ -164,7 +202,7 @@ async def is_item_excluded(
     try:
         result = item_service.is_item_excluded(request)
 
-        base_info = item_service.get_item_base_info(
+        info = item_service.get_item_info(
             ItemRequest(mediaId=request.itemId, session_info=request.session_info)
         )
 
@@ -175,7 +213,7 @@ async def is_item_excluded(
             request.session_info.modelId,
             request.session_info.collection,
             request.itemId,
-            base_info["name"],
+            info["name"],
             {"excluded": result["excludedOrNot"]},
         )
 
