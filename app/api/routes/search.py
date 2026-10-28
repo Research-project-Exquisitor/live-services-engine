@@ -37,6 +37,7 @@ or for ``/temporal`` the ranked `TemporalChain` objects.
 from typing import Any, Dict
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from loguru import logger
 
 from ...schemas import (
     FacetedSearchRequest,
@@ -72,6 +73,7 @@ async def clip_search(
             {
                 "query": request.text,
                 "index_name": request.index_name,
+                # Phase 3: log the full seen list, needed to re-run the search.
                 "n_seen": len(request.seen or []),
                 "filters": request.filters.model_dump_json()
                 if request.filters
@@ -87,9 +89,11 @@ async def clip_search(
         return {"suggestions": result["suggestions"]}
 
     except SearchError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.exception("clip_search failed")
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.exception("clip_search failed")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e
 
 
 @router.post("/text")
@@ -112,6 +116,7 @@ async def text_search(
             {
                 "query": request.text,
                 "index_name": request.index_name,
+                # Phase 3: log the full seen list, needed to re-run the search.
                 "n_seen": len(request.seen or []),
                 "filters": request.filters.model_dump_json()
                 if request.filters
@@ -127,9 +132,11 @@ async def text_search(
         return {"suggestions": result["suggestions"]}
 
     except SearchError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.exception("text_search failed")
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.exception("text_search failed")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e
 
 
 @router.post("/rf")
@@ -153,6 +160,7 @@ async def rf_search(
                 "pos": request.pos,
                 "neg": request.neg,
                 "index_name": request.index_name,
+                # Phase 3: log the full seen list, needed to re-run the search.
                 "n_seen": len(request.seen),
                 "filters": request.filters.model_dump_json()
                 if request.filters
@@ -169,9 +177,11 @@ async def rf_search(
         return {"suggestions": result["suggestions"]}
 
     except SearchError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.exception("rf_search failed")
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.exception("rf_search failed")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e
 
 
 @router.post("/temporal")
@@ -248,6 +258,8 @@ async def faceted_search(
         return {"suggestions": result["suggestions"]}
 
     except SearchError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.exception("faceted_search failed")
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.exception("faceted_search failed")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e

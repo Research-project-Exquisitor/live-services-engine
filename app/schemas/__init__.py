@@ -39,7 +39,8 @@ items
     `IsExcludedRequest`, `ItemInfo`, `ClearItemSetRequest` -- item endpoint
     payloads.
 logging
-    `ClientEventRequest` -- client-side event logging payload.
+    `LogEvent`, `EventTime` -- the research event envelope;
+    `ClientEventRequest` -- legacy client-side event payload.
 """
 
 from .session import SessionInfo, AddOrRemoveModelRequest
@@ -73,7 +74,7 @@ from .items import (
     ItemInfo,
     ClearItemSetRequest,
 )
-from .logging import ClientEventRequest
+from .logging import ClientEventRequest, EventTime, LogEvent
 
 __all__ = [
     "SessionInfo",
@@ -103,4 +104,6 @@ __all__ = [
     "ItemInfo",
     "ClearItemSetRequest",
     "ClientEventRequest",
+    "EventTime",
+    "LogEvent",
 ]

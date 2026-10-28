@@ -36,6 +36,8 @@ by the route layer for audit logging.
 import time
 from typing import Dict, List
 
+from loguru import logger
+
 from ..strategies.base import (
     SearchStrategy,
     TextSearchStrategyABC,
@@ -55,6 +57,17 @@ from ..schemas import (
     TemporalSearchRequest,
 )
 from ..core.exceptions import SearchError
+
+
+def _log_search_done(strategy: str, collection: str, suggestions, started: float) -> None:
+    """Log one INFO line per finished search (diagnostic log only)."""
+    logger.info(
+        "{} search in {}: {} results in {:.0f} ms",
+        strategy,
+        collection,
+        len(suggestions),
+        (time.perf_counter() - started) * 1000,
+    )
 
 
 class SearchService:
@@ -115,7 +128,11 @@ class SearchService:
         if not isinstance(strategy, TextSearchStrategyABC):
             raise SearchError(f"Strategy {strategy_name} does not support text search")
 
+        # Old audit-log timing in whole seconds. Phase 3 replaces start_time and
+        # completion_time with one millisecond duration used by both logs.
         start_time = int(time.time())
+        started = time.perf_counter()
+        logger.debug("{} search started in {}", strategy_name, request.session_info.collection)
 
         try:
             suggestions = await strategy.search(
@@ -129,6 +146,7 @@ class SearchService:
             )
 
             completion_time = int(time.time()) - start_time
+            _log_search_done(strategy_name, request.session_info.collection, suggestions, started)
 
             return {
                 "suggestions": suggestions,
@@ -153,7 +171,11 @@ class SearchService:
         if not isinstance(strategy, RFSearchStrategyABC):
             raise SearchError("RF strategy not properly configured")
 
+        # Old audit-log timing in whole seconds. Phase 3 replaces start_time and
+        # completion_time with one millisecond duration used by both logs.
         start_time = int(time.time())
+        started = time.perf_counter()
+        logger.debug("rf search started in {}", request.session_info.collection)
 
         try:
             suggestions = await strategy.search(
@@ -169,6 +191,7 @@ class SearchService:
             )
 
             completion_time = int(time.time()) - start_time
+            _log_search_done("rf", request.session_info.collection, suggestions, started)
 
             return {
                 "suggestions": suggestions,
@@ -193,7 +216,11 @@ class SearchService:
         if not isinstance(strategy, FacetedSearchStrategyABC):
             raise SearchError("Faceted strategy not properly configured")
 
+        # Old audit-log timing in whole seconds. Phase 3 replaces start_time and
+        # completion_time with one millisecond duration used by both logs.
         start_time = int(time.time())
+        started = time.perf_counter()
+        logger.debug("faceted search started in {}", request.session_info.collection)
 
         try:
             suggestions = await strategy.search(
@@ -203,6 +230,7 @@ class SearchService:
             )
 
             completion_time = int(time.time()) - start_time
+            _log_search_done("faceted", request.session_info.collection, suggestions, started)
 
             return {
                 "suggestions": suggestions,

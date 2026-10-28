@@ -7,9 +7,11 @@ requires-python = ">=3.13"
 dependencies = [
     "faiss-cpu>=1.11.0",
     "fastapi>=0.115.12",
+    "filelock>=3.25.0",
     "h5py>=3.13.0",
     "invoke>=2.2.0",
     "ipython>=9.2.0",
+    "loguru>=0.7.3",
     "msgpack>=1.1.0",
     "ollama>=0.4.8",
     "open-clip-torch>=2.32.0",

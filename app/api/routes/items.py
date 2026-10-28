@@ -35,6 +35,7 @@ tasks for every request.
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from loguru import logger
 
 from app.core.exceptions import DatabaseError
 
@@ -82,9 +83,11 @@ async def get_item_base_info(
         return result
 
     except DatabaseError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        logger.exception("get_item_base_info failed")
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.exception("get_item_base_info failed")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e
 
 
 @router.post("/item/info/batch")
@@ -151,9 +154,11 @@ async def get_item_detailed_info(
         return result
 
     except DatabaseError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        logger.exception("get_item_detailed_info failed")
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.exception("get_item_detailed_info failed")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e
 
 
 @router.post("/item/related")
@@ -186,9 +191,11 @@ async def get_related_items(
         return result
 
     except DatabaseError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        logger.exception("get_related_items failed")
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.exception("get_related_items failed")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e
 
 
 @router.post("/item/excluded")
@@ -220,6 +227,8 @@ async def is_item_excluded(
         return result
 
     except DatabaseError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        logger.exception("is_item_excluded failed")
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.exception("is_item_excluded failed")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e

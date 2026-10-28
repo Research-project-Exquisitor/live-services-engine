@@ -43,11 +43,9 @@ A module-level ``container`` instance is exported for use throughout the
 application (imported by route dependencies, the lifespan handler, etc.).
 """
 
-import logging
 import threading
 import time
 from abc import ABC, abstractmethod
-from datetime import datetime
 from pathlib import Path
 from typing import Any, ClassVar, Dict, Optional, Set
 
@@ -57,6 +55,7 @@ from sentence_transformers import SentenceTransformer
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
+from loguru import logger
 
 from .config import ConfigManager, LSEConfig
 from .exceptions import ModelLoadError
@@ -66,10 +65,6 @@ from ..repositories.index_repository import IndexRepository
 console = Console()
 """Rich console instance for styled terminal output."""
 
-logger = logging.getLogger(__name__)
-"""Module-level logger for model and container diagnostics."""
-
-
 def timer_decorator(func):
     """Decorator to measure execution time."""
 
@@ -78,10 +73,7 @@ def timer_decorator(func):
         result = func(*args, **kwargs)
         end = time.perf_counter()
         time_taken = end - start
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        logger.info(
-            f"{current_time} - {func.__name__} executed in {time_taken:.3f} seconds"
-        )
+        logger.info("{} executed in {:.3f} seconds", func.__name__, time_taken)
         return result
 
     return wrapper
@@ -150,7 +142,7 @@ class ModelManager(ABC):
             return self._text_encoders[model_name]
         with self._load_lock:
             if model_name not in self._text_encoders: # Extra check in case another thread loaded it while waiting
-                logger.info(f"Loading {self.embedding_type} model: {model_name}")
+                logger.info("Loading {} model: {}", self.embedding_type, model_name)
                 text_encoder = self._load_text_encoder(model_name)
                 self._after_load_text_encoder(model_name)
                 self._text_encoders[model_name] = text_encoder
@@ -168,10 +160,10 @@ class ModelManager(ABC):
             for model_name in sorted(self._configured_model_names()):
                 self.get_text_encoder(model_name)
 
-            logger.info(f"All {self.embedding_type} models initialized successfully")
+            logger.info("All {} models initialized successfully", self.embedding_type)
 
         except Exception as e:
-            logger.error(f"Failed to initialize {self.embedding_type} models: {e}")
+            logger.exception("Failed to initialize {} models", self.embedding_type)
             raise ModelLoadError(
                 f"{self.embedding_type} model initialization failed: {e}"
             ) from e
@@ -228,7 +220,7 @@ class CLIPModelManager(ModelManager):
             cache_path = self._text_encoder_cache_path(model_name)
 
             if not cache_path.exists():
-                logger.info(f"{model_name} not found locally, downloading...")
+                logger.info("{} not found locally, downloading...", model_name)
                 model = open_clip.create_model(
                     model_name,
                     pretrained="webli",
@@ -376,7 +368,7 @@ class ApplicationContainer:
         database_repo = self.database_repository
         index_repo = self.index_repository
 
-        logger.info(f"Running on Device: {clip_model_manager.device}")
+        logger.info("Running on device: {}", clip_model_manager.device)
 
         # Explicitly initialize models during startup
         logger.info("Loading ML models...")
@@ -385,7 +377,7 @@ class ApplicationContainer:
 
         # Load data for each collection
         for collection in config.collections:
-            logger.info(f"Loading artifacts for collection: {collection}")
+            logger.info("Loading artifacts for collection: {}", collection)
             collection_config = config.collection_configs[collection]
 
             # Load metadata

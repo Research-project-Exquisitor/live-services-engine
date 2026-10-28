@@ -33,6 +33,7 @@ metadata queries, and audit logging of client-side events:
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, BackgroundTasks, Depends
+from loguru import logger
 
 from app.repositories.database_repository import DatabaseRepository
 
@@ -70,9 +71,10 @@ async def init_session(
         return {"session": session, "collections": collections}
 
     except Exception as e:
+        logger.exception("init_session failed")
         from fastapi import HTTPException
 
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e
 
 
 @router.post("/info/totalItems")
@@ -96,9 +98,10 @@ async def get_total_items(
         return {"total_items": total_items}
 
     except Exception as e:
+        logger.exception("get_total_items failed")
         from fastapi import HTTPException
 
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e
 
 
 @router.get("/info/filters/{session}/{collection}")
@@ -124,9 +127,10 @@ async def get_filters(
 
         return filters
     except Exception as e:
+        logger.exception("get_filters failed")
         from fastapi import HTTPException
 
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e
 
 
 @router.get("/info/filters/values/{session}/{collection}/{tagtypeId}/{tagsetId}")
@@ -155,9 +159,10 @@ async def get_filter_values(
         return filter_values
 
     except Exception as e:
+        logger.exception("get_filter_values failed")
         from fastapi import HTTPException
 
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e
 
 
 @router.get("/info/indexes/{session}/{collection}")
@@ -174,10 +179,11 @@ async def get_indexes(
     """
     try:
         collection_config = config_manager.config.collection_configs[collection]
-    except KeyError:
+    except KeyError as e:
+        logger.exception("get_indexes failed")
         from fastapi import HTTPException
 
-        raise HTTPException(status_code=404, detail=f"Unknown collection: {collection!r}")
+        raise HTTPException(status_code=404, detail=f"Unknown collection: {collection!r}") from e
 
     default_index_name = collection_config.default_index.name
     return [
@@ -235,6 +241,8 @@ async def log_client_event(
     logging_service: LoggingService = Depends(get_logging_service),
 ) -> Dict[str, str]:
     """Log a generic client event."""
+    # Phase 3: replaced by an endpoint that accepts `LogEvent`s and writes them
+    # through `EventLog`; this route writes to the old AuditLogger directly.
     for event in request:
         background_tasks.add_task(
             logging_service.audit_logger.log,

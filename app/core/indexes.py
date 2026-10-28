@@ -50,6 +50,7 @@ import zarr
 from zarr.storage import ZipStore
 
 import faiss
+from loguru import logger
 
 
 class BaseIndex(ABC):
@@ -189,8 +190,11 @@ class ZarrIndex(BaseIndex):
                         ends,
                     )
                 )
-            except Exception as e:
-                print(f"Error during parallel search: {e}")
+            except Exception:
+                # Re-raise: with no results the concatenate below would
+                # fail anyway, with a less useful error.
+                logger.exception("Error during parallel search")
+                raise
 
         total_top_dists = np.concatenate(results)
         arg_sorted_dists = np.argsort(total_top_dists)[::-1]
