@@ -90,23 +90,14 @@ class LogEvent(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    v: Literal[1] = SCHEMA_VERSION
-    """Schema version, so export scripts know which format they are reading."""
+    type: EventType
+    """What happened."""
 
-    event_id: str = Field(default_factory=lambda: uuid.uuid4().hex, min_length=1, max_length=64)
-    """Unique per event. The client sets its own, so retries can be deduplicated."""
+    target: EventTarget
+    """What it happened to."""
 
     source: Literal["client", "server"]
     """Which side recorded the event."""
-
-    user_id: Optional[str] = Field(default=None, max_length=64)
-    """Pseudonymous participant ID. Optional until its source is decided."""
-
-    session_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
-    """Session the event belongs to. Also used in the log file name."""
-
-    task_id: Optional[str] = Field(default=None, max_length=64)
-    """Retrieval task active when the event happened; ``None`` outside a task."""
 
     time: EventTime
     """Client and server timestamps."""
@@ -114,11 +105,20 @@ class LogEvent(BaseModel):
     sequence: int = Field(ge=0)
     """Position of the event within its session."""
 
-    type: EventType
-    """What happened."""
+    session_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
+    """Session the event belongs to. Also used in the log file name."""
 
-    target: EventTarget
-    """What it happened to."""
+    user_id: Optional[str] = Field(default=None, max_length=64)
+    """Pseudonymous participant ID. Optional until its source is decided."""
+
+    task_id: Optional[str] = Field(default=None, max_length=64)
+    """Retrieval task active when the event happened; ``None`` outside a task."""
+
+    event_id: str = Field(default_factory=lambda: uuid.uuid4().hex, min_length=1, max_length=64)
+    """Unique per event. The client sets its own, so retries can be deduplicated."""
+
+    v: Literal[1] = SCHEMA_VERSION
+    """Schema version, so export scripts know which format they are reading."""
 
     data: dict[str, Any] = Field(default_factory=dict)
     """Event-specific payload, e.g. ``item_id`` or ``request_id``."""
