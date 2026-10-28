@@ -128,9 +128,10 @@ class SearchService:
         if not isinstance(strategy, TextSearchStrategyABC):
             raise SearchError(f"Strategy {strategy_name} does not support text search")
 
-        # Old audit-log timing in whole seconds. Phase 3 replaces start_time and
-        # completion_time with one millisecond duration used by both logs.
+        # Preserve legacy audit timing during migration. Research events use
+        # millisecond timestamps and a monotonic duration instead.
         start_time = int(time.time())
+        started_ms = time.time_ns() // 1_000_000
         started = time.perf_counter()
         logger.debug("{} search started in {}", strategy_name, request.session_info.collection)
 
@@ -146,6 +147,8 @@ class SearchService:
             )
 
             completion_time = int(time.time()) - start_time
+            completed_ms = time.time_ns() // 1_000_000
+            duration_ms = (time.perf_counter() - started) * 1000
             _log_search_done(strategy_name, request.session_info.collection, suggestions, started)
 
             return {
@@ -153,6 +156,9 @@ class SearchService:
                 "request_timestamp": start_time,
                 "completion_time": completion_time,
                 "strategy": strategy_name,
+                "started_ms": started_ms,
+                "completed_ms": completed_ms,
+                "duration_ms": duration_ms,
             }
 
         except Exception as e:

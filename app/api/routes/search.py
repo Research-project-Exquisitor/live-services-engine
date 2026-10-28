@@ -84,15 +84,25 @@ async def clip_search(
             result["suggestions"],
             result["request_timestamp"],
             result["completion_time"],
+            request_data=request.model_dump(mode="json"),
+            execution=result,
         )
 
         return {"suggestions": result["suggestions"]}
 
     except SearchError as e:
         logger.exception("clip_search failed")
+        await logging_service.log_error(
+            e, request.session_info.session,
+            {"request": request.model_dump(mode="json")}, target="search",
+        )
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.exception("clip_search failed")
+        await logging_service.log_error(
+            e, request.session_info.session,
+            {"request": request.model_dump(mode="json")}, target="search",
+        )
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e
 
 
@@ -127,15 +137,25 @@ async def text_search(
             result["suggestions"],
             result["request_timestamp"],
             result["completion_time"],
+            request_data=request.model_dump(mode="json"),
+            execution=result,
         )
 
         return {"suggestions": result["suggestions"]}
 
     except SearchError as e:
         logger.exception("text_search failed")
+        await logging_service.log_error(
+            e, request.session_info.session,
+            {"request": request.model_dump(mode="json")}, target="search",
+        )
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.exception("text_search failed")
+        await logging_service.log_error(
+            e, request.session_info.session,
+            {"request": request.model_dump(mode="json")}, target="search",
+        )
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e
 
 

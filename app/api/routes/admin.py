@@ -28,6 +28,7 @@ metadata queries, and audit logging of client-side events:
   indexes, so a client can discover index names instead of hardcoding them.
 - ``POST /log/addModel`` / ``POST /log/removeModel`` -- audit model lifecycle.
 - ``POST /log/clientEvent`` -- batch-log arbitrary client-side UI events.
+- ``POST /log/clientEventV2`` -- validate and queue structured research events.
 """
 
 from typing import Any, Dict, List
@@ -43,6 +44,7 @@ from ...schemas import (
     AddOrRemoveModelRequest,
 )
 from ...services.logging_service import LoggingService
+from ...schemas.logging import ClientLogEvent
 from ..dependencies import (
     get_database_repository,
     get_config_manager,
@@ -234,6 +236,19 @@ async def log_remove_model(
     return {"status": "Logged successfully"}
 
 
+@router.post("/log/clientEventV2", status_code=202)
+async def log_events(
+    events: list[ClientLogEvent],
+    logging_service: LoggingService = Depends(get_logging_service),
+) -> dict[str, int]:
+    """Validate the whole batch before queueing it for the JSONL writer.
+
+    Accepted means queued, not durably stored. Delivery guarantees and retries
+    are Phase 4 work; this endpoint does not promise deduplication yet.
+    """
+    return {"accepted": await logging_service.log_client_events(events)}
+
+
 @router.post("/log/clientEvent")
 async def log_client_event(
     request: List[ClientEventRequest],
@@ -241,8 +256,8 @@ async def log_client_event(
     logging_service: LoggingService = Depends(get_logging_service),
 ) -> Dict[str, str]:
     """Log a generic client event."""
-    # Phase 3: replaced by an endpoint that accepts `LogEvent`s and writes them
-    # through `EventLog`; this route writes to the old AuditLogger directly.
+    # Phase 3: /log/clientEventV2 accepts the new format and writes through EventLog.
+    # Keep this legacy route until all producers have migrated.
     for event in request:
         background_tasks.add_task(
             logging_service.audit_logger.log,
