@@ -253,7 +253,11 @@ class SearchService:
         if not isinstance(strategy, TemporalSearchStrategyABC):
             raise SearchError("Temporal strategy not properly configured")
 
+        # Old audit-log timing in whole seconds. Phase 3 replaces start_time and
+        # completion_time with one millisecond duration used by both logs.
         start_time = int(time.time())
+        started = time.perf_counter()
+        logger.debug("temporal search started in {}", request.session_info.collection)
 
         try:
             chains = await strategy.search(
@@ -270,6 +274,8 @@ class SearchService:
             )
 
             completion_time = int(time.time()) - start_time
+
+            _log_search_done("temporal", request.session_info.collection, chains, started)
 
             return {
                 "suggestions": chains,
