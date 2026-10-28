@@ -33,7 +33,7 @@ The dependency graph is::
         └── get_item_service    (database_repo + config_manager)
 """
 
-from fastapi import Depends, Request
+from fastapi import Depends, Header, Request
 
 from app.core.config import ConfigManager
 from app.repositories.database_repository import DatabaseRepository
@@ -43,7 +43,6 @@ from ..core.models import ApplicationContainer, CLIPModelManager, TextModelManag
 from ..services.search_service import SearchService
 from ..services.item_service import ItemService
 from ..services.logging_service import LoggingService
-from ..services.event_log import EventLog
 
 
 def get_container() -> ApplicationContainer:
@@ -106,11 +105,10 @@ def get_item_service(
     return ItemService(database_repo, config_manager)
 
 
-def get_logging_service(request: Request) -> LoggingService:
-    """Get the logging service from app state."""
-    return request.app.state.logging_service
-
-
-def get_event_log(request: Request) -> EventLog:
-    """Get the research event log from app state."""
-    return request.app.state.event_log
+def get_logging_service(
+    request: Request,
+    request_id: str | None = Header(default=None, alias="X-Exq-Request-Id", max_length=64),
+    sequence: int | None = Header(default=None, alias="X-Exq-Event-Sequence", ge=0),
+) -> LoggingService:
+    """Resolve logging context once per request, with application-owned writers."""
+    return request.app.state.logging_service.for_request(request_id, sequence)

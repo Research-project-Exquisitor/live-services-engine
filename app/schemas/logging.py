@@ -134,6 +134,18 @@ class LogEvent(BaseModel):
         return (self.sequence, 0 if self.source == "client" else 1)
 
 
+class ClientLogEvent(LogEvent):
+    """Client intake event; the server assigns its own receive timestamp."""
+
+    source: Literal["client"]
+
+    @model_validator(mode="after")
+    def server_time_is_assigned_by_server(self):
+        if self.time.server is not None:
+            raise ValueError("time.server is assigned by the server")
+        return self
+
+
 class ClientEventRequest(BaseModel):
     """Request model for logging client-side events.
 

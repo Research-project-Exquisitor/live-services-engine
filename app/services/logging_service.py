@@ -16,8 +16,8 @@
 
 """Centralized logging service for audit trails and system logs.
 
-This module provides two classes that work together to produce a durable,
-structured audit trail of every user interaction with the LSE:
+This module contains the logging facade and the legacy audit writer. During
+Phase 3, migrated operations also use the structured research event writer:
 
 `AuditLogger`
     Low-level async writer.  Log entries are pushed onto an `asyncio.Queue`
@@ -27,11 +27,10 @@ structured audit trail of every user interaction with the LSE:
     for non-async contexts.
 
 `LoggingService`
-    High-level facade consumed by route handlers and services.  It provides
-    semantic methods (``log_search_request``, ``log_item_request``,
-    ``log_session_init``, ``log_error``, etc.) that format the audit entry
-    and delegate to `AuditLogger`.  It also mirrors errors to the diagnostic
-    log (Loguru) for operational monitoring.
+    Facade consumed by route handlers and services. Migrated operations build
+    `LogEvent` envelopes and queue them through `EventLog`. Legacy operations
+    continue using `AuditLogger` during Phase 3. Request-bound instances share
+    the writers without sharing request context.
 """
 
 import asyncio
@@ -43,7 +42,8 @@ import msgpack
 from filelock import FileLock
 from loguru import logger
 
-from ..core.exceptions import LSEException
+from ..schemas.logging import ClientLogEvent, EventTarget, EventType, LogEvent
+from .event_log import EventLog
 
 
 # Old research writer. Phase 3 replaces it with `EventLog` (event_log.py)
@@ -152,9 +152,62 @@ class AuditLogger:
 class LoggingService:
     """Service for managing all logging operations."""
 
-    def __init__(self, audit_logger: AuditLogger):
+    def __init__(
+        self,
+        audit_logger: AuditLogger,
+        event_log: EventLog | None = None,
+        *,
+        request_id: str | None = None,
+        sequence: int | None = None,
+    ):
         self.audit_logger: AuditLogger = audit_logger
         """Low-level audit logger that serializes entries to disk."""
+        self.event_log = event_log
+        self._request_id = request_id
+        self._sequence = sequence
+
+    def for_request(self, request_id: str | None, sequence: int | None) -> "LoggingService":
+        """Bind context to a new facade, never to the shared application instance."""
+        return LoggingService(
+            self.audit_logger, self.event_log, request_id=request_id, sequence=sequence
+        )
+
+    async def log_event(
+        self,
+        event_type: EventType,
+        target: EventTarget,
+        session: str,
+        data: Dict[str, Any],
+    ) -> None:
+        """Build and queue a server event using this request's causal context.
+
+        Old clients have no sequence; leave them on legacy logging rather than
+        inventing event order. Research logging failures remain diagnostic and
+        must not replace a successful response or the original application error.
+        """
+        if self.event_log is None or self._sequence is None or not self._request_id:
+            return
+        try:
+            event = LogEvent(
+                source="server", session_id=session, sequence=self._sequence,
+                type=event_type, target=target, time={},
+                data={**data, "request_id": self._request_id},
+            )
+            await self.event_log.write(event)
+        except Exception:
+            logger.exception("Failed to queue research event {} for session {}", event_type, session)
+
+    async def log_client_events(self, events: list[ClientLogEvent]) -> int:
+        """Queue validated UI events, preserving their original IDs and context.
+
+        Intake errors propagate, so the endpoint never reports acceptance for
+        an event it failed to queue. Acceptance still does not imply disk durability.
+        """
+        if self.event_log is None:
+            raise RuntimeError("Research event writer is not configured")
+        for event in events:
+            await self.event_log.write(event)
+        return len(events)
 
 
     async def log_session_init(self, session: str, collections: list):
@@ -188,8 +241,25 @@ class LoggingService:
         suggestions: list,
         request_timestamp: int,
         completion_time: int,
+        *,
+        request_data: Dict[str, Any] | None = None,
+        execution: Dict[str, Any] | None = None,
     ):
-        """Log search requests with performance metrics."""
+        """Log any search family, with structured data for migrated callers.
+
+        Request and result payloads can contain text, RF inputs or temporal
+        chains. The facade does not depend on a particular search request model.
+        """
+        if request_data is not None and execution is not None:
+            await self.log_event("query_execution", "search", session, {
+                # Keep strategy-specific execution facts, including future RF
+                # samples or resolved index/model context. Only legacy timing
+                # fields belong exclusively to the old audit representation.
+                **{key: value for key, value in execution.items()
+                   if key not in {"request_timestamp", "completion_time", "suggestions"}},
+                "request": request_data,
+                "suggestions": suggestions,
+            })
         await self.audit_logger.log(
             action=action,
             session=session,
@@ -266,19 +336,28 @@ class LoggingService:
         await self.audit_logger.log(action=action, session=session, data=data)
 
     async def log_error(
-        self, error: LSEException, session: str, context: Dict[str, Any]
+        self, error: Exception, session: str, context: Dict[str, Any],
+        *, target: EventTarget = "session",
     ):
         """Log application errors."""
-        await self.audit_logger.log(
-            action="Error",
-            session=session,
-            data={
-                "error_type": type(error).__name__,
-                "error_message": str(error),
-                "error_details": getattr(error, "details", {}),
-                "context": context,
-            },
-        )
+        await self.log_event("error", target, session, {
+            "message": str(error),
+            "error_type": type(error).__name__,
+            "context": context,
+        })
+        try:
+            await self.audit_logger.log(
+                action="Error",
+                session=session,
+                data={
+                    "error_type": type(error).__name__,
+                    "error_message": str(error),
+                    "error_details": getattr(error, "details", {}),
+                    "context": context,
+                },
+            )
+        except Exception:
+            logger.exception("Failed to queue error in legacy audit log")
 
         # Also log to the diagnostic log
         logger.error(
@@ -293,7 +372,13 @@ class LoggingService:
     async def start(self):
         """Start the logging service."""
         await self.audit_logger.start()
+        if self.event_log is not None:
+            await self.event_log.start()
 
     async def stop(self):
         """Stop the logging service."""
-        await self.audit_logger.stop()
+        try:
+            await self.audit_logger.stop()
+        finally:
+            if self.event_log is not None:
+                await self.event_log.stop()
