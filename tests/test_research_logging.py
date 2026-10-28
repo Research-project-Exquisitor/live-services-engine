@@ -73,12 +73,15 @@ def read_events(event_log_writer):
 def test_validated_client_events_receive_server_time(logging_app):
     app, event_log_writer, _, _ = logging_app
     with TestClient(app) as client:
-        response = client.post("/exq/log/clientEventV2", json=[client_event()])
+        response = client.post("/exq/log/clientEventV2", json=[client_event(request_id="search-1")],
+                               headers={"X-Exq-Request-Id": "delivery-1"})
         assert response.status_code == 202
         assert response.json() == {"accepted": 1}
     event, = read_events(event_log_writer)
     assert event.time.client == 1_793_181_600_123
     assert event.time.server is not None
+    assert event.request_id == "search-1"
+    assert "request_id" not in event.data
 
 
 @pytest.mark.parametrize("invalid", [
@@ -105,7 +108,8 @@ def test_search_records_full_inputs_results_and_precise_timing(logging_app, endp
     assert event.type == "query_execution"
     assert event.sequence == 0
     assert event.source == "server"
-    assert event.data["request_id"] == "request-1"
+    assert event.request_id == "request-1"
+    assert "request_id" not in event.data
     assert event.data["request"]["seen"] == [7, 8]
     assert event.data["request"]["excluded"] == [9]
     assert event.data["suggestions"] == [33, 15]
@@ -147,7 +151,7 @@ def test_failed_search_preserves_error_and_request_link_when_audit_logging_fails
         assert "test failure" in response.json()["detail"]
     event, = read_events(event_log_writer)
     assert event.type == "error"
-    assert event.data["request_id"] == "request-1"
+    assert event.request_id == "request-1"
     assert "test failure" in event.data["message"]
 
 
@@ -193,4 +197,4 @@ def test_concurrent_http_requests_keep_logging_context_isolated(logging_app):
         event = LogEvent.model_validate_json(event_log_writer.path_for(f"s-{suffix}").read_text())
         assert event.session_id == f"s-{suffix}"
         assert event.sequence == sequence
-        assert event.data["request_id"] == f"r-{suffix}"
+        assert event.request_id == f"r-{suffix}"

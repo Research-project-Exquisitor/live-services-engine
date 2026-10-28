@@ -105,6 +105,9 @@ class LogEvent(BaseModel):
     sequence: int = Field(ge=0)
     """Position of the event within its session."""
 
+    request_id: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    """Request this event belongs to; None when there is no related request."""
+
     session_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
     """Session the event belongs to. Also used in the log file name."""
 
@@ -121,7 +124,7 @@ class LogEvent(BaseModel):
     """Schema version, so export scripts know which format they are reading."""
 
     data: dict[str, Any] = Field(default_factory=dict)
-    """Event-specific payload, e.g. ``item_id`` or ``request_id``."""
+    """Event-specific payload, e.g. ``item_id`` or search parameters."""
 
     @model_validator(mode="after")
     def _client_events_have_client_time(self) -> LogEvent:

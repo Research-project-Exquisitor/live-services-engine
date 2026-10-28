@@ -191,7 +191,7 @@ class LoggingService:
             event = LogEvent(
                 source="server", session_id=session, sequence=self._sequence,
                 type=event_type, target=target, time={},
-                data={**data, "request_id": self._request_id},
+                request_id=self._request_id, data=data,
             )
             await self.event_log_writer.write(event)
         except Exception:
