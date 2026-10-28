@@ -28,7 +28,7 @@ Phase 3, migrated operations also use the structured research event writer:
 
 `LoggingService`
     Facade consumed by route handlers and services. Migrated operations build
-    `LogEvent` envelopes and queue them through `EventLog`. Legacy operations
+    `LogEvent` envelopes and queue them through `EventLogWriter`. Legacy operations
     continue using `AuditLogger` during Phase 3. Request-bound instances share
     the writers without sharing request context.
 """
@@ -43,10 +43,10 @@ from filelock import FileLock
 from loguru import logger
 
 from ..schemas.logging import ClientLogEvent, EventTarget, EventType, LogEvent
-from .event_log import EventLog
+from .event_log_writer import EventLogWriter
 
 
-# Old research writer. Phase 3 replaces it with `EventLog` (event_log.py)
+# Old research writer. Phase 3 replaces it with `EventLogWriter` (event_log_writer.py)
 # and removes this class, msgpack and logs/audit.log.
 class AuditLogger:
     """Handles audit logging with structured format and async processing."""
@@ -148,28 +148,28 @@ class AuditLogger:
 
 
 # Stays in Phase 3, but its methods will build `LogEvent`s and write them to
-# `EventLog` instead of free-text entries to `AuditLogger`.
+# `EventLogWriter` instead of free-text entries to `AuditLogger`.
 class LoggingService:
     """Service for managing all logging operations."""
 
     def __init__(
         self,
         audit_logger: AuditLogger,
-        event_log: EventLog | None = None,
+        event_log_writer: EventLogWriter | None = None,
         *,
         request_id: str | None = None,
         sequence: int | None = None,
     ):
         self.audit_logger: AuditLogger = audit_logger
         """Low-level audit logger that serializes entries to disk."""
-        self.event_log = event_log
+        self.event_log_writer = event_log_writer
         self._request_id = request_id
         self._sequence = sequence
 
     def for_request(self, request_id: str | None, sequence: int | None) -> "LoggingService":
         """Bind context to a new facade, never to the shared application instance."""
         return LoggingService(
-            self.audit_logger, self.event_log, request_id=request_id, sequence=sequence
+            self.audit_logger, self.event_log_writer, request_id=request_id, sequence=sequence
         )
 
     async def log_event(
@@ -185,7 +185,7 @@ class LoggingService:
         inventing event order. Research logging failures remain diagnostic and
         must not replace a successful response or the original application error.
         """
-        if self.event_log is None or self._sequence is None or not self._request_id:
+        if self.event_log_writer is None or self._sequence is None or not self._request_id:
             return
         try:
             event = LogEvent(
@@ -193,7 +193,7 @@ class LoggingService:
                 type=event_type, target=target, time={},
                 data={**data, "request_id": self._request_id},
             )
-            await self.event_log.write(event)
+            await self.event_log_writer.write(event)
         except Exception:
             logger.exception("Failed to queue research event {} for session {}", event_type, session)
 
@@ -203,10 +203,10 @@ class LoggingService:
         Intake errors propagate, so the endpoint never reports acceptance for
         an event it failed to queue. Acceptance still does not imply disk durability.
         """
-        if self.event_log is None:
+        if self.event_log_writer is None:
             raise RuntimeError("Research event writer is not configured")
         for event in events:
-            await self.event_log.write(event)
+            await self.event_log_writer.write(event)
         return len(events)
 
 
@@ -372,13 +372,13 @@ class LoggingService:
     async def start(self):
         """Start the logging service."""
         await self.audit_logger.start()
-        if self.event_log is not None:
-            await self.event_log.start()
+        if self.event_log_writer is not None:
+            await self.event_log_writer.start()
 
     async def stop(self):
         """Stop the logging service."""
         try:
             await self.audit_logger.stop()
         finally:
-            if self.event_log is not None:
-                await self.event_log.stop()
+            if self.event_log_writer is not None:
+                await self.event_log_writer.stop()

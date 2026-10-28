@@ -19,7 +19,7 @@
 `LogEvent` is the common event envelope from the logging framework
 (``research-workspace/notes/logging-framework.md`` §3). Client and server
 events both use it; every event is written as one JSON line by
-`app.services.event_log.EventLog`.
+`app.services.event_log_writer.EventLogWriter`.
 
 `ClientEventRequest` is the old payload of ``POST /exq/log/clientEvent``. It
 stays until the client events move to `LogEvent`.
@@ -76,7 +76,7 @@ class EventTime(BaseModel):
     """When the event happened in the browser. ``None`` for server events."""
 
     server: Optional[int] = Field(default=None, ge=0)
-    """When the backend received the event. Set by `EventLog` on receipt."""
+    """When the backend received the event. Set by `EventLogWriter` on receipt."""
 
 
 class LogEvent(BaseModel):

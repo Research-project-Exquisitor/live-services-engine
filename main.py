@@ -53,7 +53,7 @@ from app.core.exceptions import LSEException, ConfigurationError
 from app.core.logging_setup import setup_logging
 from app.api.routes import search, items, admin
 from app.repositories.database_repository import DatabaseRepository
-from app.services.event_log import EventLog
+from app.services.event_log_writer import EventLogWriter
 from app.services.logging_service import AuditLogger, LoggingService
 
 container: ApplicationContainer = container
@@ -88,8 +88,8 @@ async def lifespan(app: FastAPI):
             log_dir = "./logs"
 
         audit_logger = AuditLogger(f"{log_dir}/audit.log")
-        event_log = EventLog(f"{log_dir}/raw")
-        logging_service = LoggingService(audit_logger, event_log)
+        event_log_writer = EventLogWriter(f"{log_dir}/raw")
+        logging_service = LoggingService(audit_logger, event_log_writer)
         await logging_service.start()
 
         # Store in app state for dependency injection

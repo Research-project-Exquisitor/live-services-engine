@@ -256,7 +256,7 @@ async def log_client_event(
     logging_service: LoggingService = Depends(get_logging_service),
 ) -> Dict[str, str]:
     """Log a generic client event."""
-    # Phase 3: /log/clientEventV2 accepts the new format and writes through EventLog.
+    # Phase 3: /log/clientEventV2 accepts the new format and writes through EventLogWriter.
     # Keep this legacy route until all producers have migrated.
     for event in request:
         background_tasks.add_task(
