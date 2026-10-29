@@ -46,7 +46,7 @@ from ...schemas import (
     TemporalSearchRequest,
 )
 from ...services.search_service import SearchService
-from ...services.logging_service import LoggingService
+from ...services.logging_service import LoggingService, SearchTimer
 from ...core.exceptions import SearchError
 from ..dependencies import get_search_service, get_logging_service
 
@@ -61,6 +61,7 @@ async def clip_search(
     logging_service: LoggingService = Depends(get_logging_service),
 ) -> Dict[str, Any]:
     """Search using CLIP text embeddings."""
+    timer = SearchTimer()
     try:
         result = await search_service.search_text("clip", request)
 
@@ -73,7 +74,6 @@ async def clip_search(
             {
                 "query": request.text,
                 "index_name": request.index_name,
-                # Phase 3: log the full seen list, needed to re-run the search.
                 "n_seen": len(request.seen or []),
                 "filters": request.filters.model_dump_json()
                 if request.filters
@@ -85,14 +85,23 @@ async def clip_search(
             result["request_timestamp"],
             result["completion_time"],
         )
+        await logging_service.log_query_execution(
+            request.session_info.session, request.model_dump(mode="json"), result, result["suggestions"], timer,
+        )
 
         return {"suggestions": result["suggestions"]}
 
     except SearchError as e:
         logger.exception("clip_search failed")
+        await logging_service.log_search_error(
+            request.session_info.session, request.model_dump(mode="json"), e,
+        )
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.exception("clip_search failed")
+        await logging_service.log_search_error(
+            request.session_info.session, request.model_dump(mode="json"), e,
+        )
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e
 
 
@@ -104,6 +113,7 @@ async def text_search(
     logging_service: LoggingService = Depends(get_logging_service),
 ) -> Dict[str, Any]:
     """Search using sentence-transformers text embeddings."""
+    timer = SearchTimer()
     try:
         result = await search_service.search_text("text", request)
 
@@ -116,7 +126,6 @@ async def text_search(
             {
                 "query": request.text,
                 "index_name": request.index_name,
-                # Phase 3: log the full seen list, needed to re-run the search.
                 "n_seen": len(request.seen or []),
                 "filters": request.filters.model_dump_json()
                 if request.filters
@@ -128,14 +137,23 @@ async def text_search(
             result["request_timestamp"],
             result["completion_time"],
         )
+        await logging_service.log_query_execution(
+            request.session_info.session, request.model_dump(mode="json"), result, result["suggestions"], timer,
+        )
 
         return {"suggestions": result["suggestions"]}
 
     except SearchError as e:
         logger.exception("text_search failed")
+        await logging_service.log_search_error(
+            request.session_info.session, request.model_dump(mode="json"), e,
+        )
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.exception("text_search failed")
+        await logging_service.log_search_error(
+            request.session_info.session, request.model_dump(mode="json"), e,
+        )
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e
 
 
@@ -147,6 +165,7 @@ async def rf_search(
     logging_service: LoggingService = Depends(get_logging_service),
 ) -> Dict[str, Any]:
     """Search using relevance feedback (SVM)."""
+    timer = SearchTimer()
     try:
         result = await search_service.search_rf(request)
 
@@ -160,7 +179,6 @@ async def rf_search(
                 "pos": request.pos,
                 "neg": request.neg,
                 "index_name": request.index_name,
-                # Phase 3: log the full seen list, needed to re-run the search.
                 "n_seen": len(request.seen),
                 "filters": request.filters.model_dump_json()
                 if request.filters
@@ -173,14 +191,23 @@ async def rf_search(
             result["request_timestamp"],
             result["completion_time"],
         )
+        await logging_service.log_query_execution(
+            request.session_info.session, request.model_dump(mode="json"), result, result["suggestions"], timer,
+        )
 
         return {"suggestions": result["suggestions"]}
 
     except SearchError as e:
         logger.exception("rf_search failed")
+        await logging_service.log_search_error(
+            request.session_info.session, request.model_dump(mode="json"), e,
+        )
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.exception("rf_search failed")
+        await logging_service.log_search_error(
+            request.session_info.session, request.model_dump(mode="json"), e,
+        )
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e
 
 
@@ -192,6 +219,7 @@ async def temporal_search(
     logging_service: LoggingService = Depends(get_logging_service),
 ) -> Dict[str, Any]:
     """Search for chains of segments matching an ordered sequence of queries."""
+    timer = SearchTimer()
     try:
         result = await search_service.search_temporal(request)
         # Using model_dump() to convert TemporalChain into a plain dict for audit logger
@@ -220,13 +248,24 @@ async def temporal_search(
             result["request_timestamp"],
             result["completion_time"],
         )
+        await logging_service.log_query_execution(
+            request.session_info.session, request.model_dump(mode="json"), result, chains, timer,
+        )
 
         return {"suggestions": chains}
 
     except SearchError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.exception("temporal_search failed")
+        await logging_service.log_search_error(
+            request.session_info.session, request.model_dump(mode="json"), e,
+        )
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.exception("temporal_search failed")
+        await logging_service.log_search_error(
+            request.session_info.session, request.model_dump(mode="json"), e,
+        )
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e
 
 
 @router.post("/faceted")
@@ -237,6 +276,7 @@ async def faceted_search(
     logging_service: LoggingService = Depends(get_logging_service),
 ) -> Dict[str, Any]:
     """Search using filters only"""
+    timer = SearchTimer()
     try:
         result = await search_service.search_faceted(request)
 
@@ -254,12 +294,21 @@ async def faceted_search(
             result["request_timestamp"],
             result["completion_time"],
         )
+        await logging_service.log_query_execution(
+            request.session_info.session, request.model_dump(mode="json"), result, result["suggestions"], timer,
+        )
 
         return {"suggestions": result["suggestions"]}
 
     except SearchError as e:
         logger.exception("faceted_search failed")
+        await logging_service.log_search_error(
+            request.session_info.session, request.model_dump(mode="json"), e,
+        )
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.exception("faceted_search failed")
+        await logging_service.log_search_error(
+            request.session_info.session, request.model_dump(mode="json"), e,
+        )
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e

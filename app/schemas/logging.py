@@ -19,7 +19,7 @@
 `LogEvent` is the common event envelope from the logging framework
 (``research-workspace/notes/logging-framework.md`` §3). Client and server
 events both use it; every event is written as one JSON line by
-`app.services.event_log.EventLog`.
+`app.services.event_log_writer.EventLogWriter`.
 
 `ClientEventRequest` is the old payload of ``POST /exq/log/clientEvent``. It
 stays until the client events move to `LogEvent`.
@@ -76,7 +76,7 @@ class EventTime(BaseModel):
     """When the event happened in the browser. ``None`` for server events."""
 
     server: Optional[int] = Field(default=None, ge=0)
-    """When the backend received the event. Set by `EventLog` on receipt."""
+    """When the backend received the event. Set by `EventLogWriter` on receipt."""
 
 
 class LogEvent(BaseModel):
@@ -90,23 +90,14 @@ class LogEvent(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    v: Literal[1] = SCHEMA_VERSION
-    """Schema version, so export scripts know which format they are reading."""
+    type: EventType
+    """What happened."""
 
-    event_id: str = Field(default_factory=lambda: uuid.uuid4().hex, min_length=1, max_length=64)
-    """Unique per event. The client sets its own, so retries can be deduplicated."""
+    target: EventTarget
+    """What it happened to."""
 
     source: Literal["client", "server"]
     """Which side recorded the event."""
-
-    user_id: Optional[str] = Field(default=None, max_length=64)
-    """Pseudonymous participant ID. Optional until its source is decided."""
-
-    session_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
-    """Session the event belongs to. Also used in the log file name."""
-
-    task_id: Optional[str] = Field(default=None, max_length=64)
-    """Retrieval task active when the event happened; ``None`` outside a task."""
 
     time: EventTime
     """Client and server timestamps."""
@@ -114,14 +105,26 @@ class LogEvent(BaseModel):
     sequence: int = Field(ge=0)
     """Position of the event within its session."""
 
-    type: EventType
-    """What happened."""
+    request_id: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    """Request this event belongs to; None when there is no related request."""
 
-    target: EventTarget
-    """What it happened to."""
+    session_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
+    """Session the event belongs to. Also used in the log file name."""
+
+    user_id: Optional[str] = Field(default=None, max_length=64)
+    """Pseudonymous participant ID. Optional until its source is decided."""
+
+    task_id: Optional[str] = Field(default=None, max_length=64)
+    """Retrieval task active when the event happened; ``None`` outside a task."""
+
+    event_id: str = Field(default_factory=lambda: uuid.uuid4().hex, min_length=1, max_length=64)
+    """Unique per event. The client sets its own, so retries can be deduplicated."""
+
+    v: Literal[1] = SCHEMA_VERSION
+    """Schema version, so export scripts know which format they are reading."""
 
     data: dict[str, Any] = Field(default_factory=dict)
-    """Event-specific payload, e.g. ``item_id`` or ``request_id``."""
+    """Event-specific payload, e.g. ``item_id`` or search parameters."""
 
     @model_validator(mode="after")
     def _client_events_have_client_time(self) -> LogEvent:
@@ -132,6 +135,18 @@ class LogEvent(BaseModel):
     def order_key(self) -> tuple[int, int]:
         """Sort key within a session: by sequence, client before server."""
         return (self.sequence, 0 if self.source == "client" else 1)
+
+
+class ClientLogEvent(LogEvent):
+    """Client intake event; the server assigns its own receive timestamp."""
+
+    source: Literal["client"]
+
+    @model_validator(mode="after")
+    def server_time_is_assigned_by_server(self):
+        if self.time.server is not None:
+            raise ValueError("time.server is assigned by the server")
+        return self
 
 
 class ClientEventRequest(BaseModel):
