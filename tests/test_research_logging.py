@@ -11,6 +11,7 @@ import pytest
 import httpx
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from loguru import logger
 
 from app.api.dependencies import get_search_service
 from app.api.routes import admin, search
@@ -19,7 +20,7 @@ from app.schemas.logging import LogEvent
 from app.services.event_log_writer import EventLogWriter
 from app.services.logging_service import LoggingService
 from app.services.search_service import SearchService
-from app.strategies.base import TextSearchStrategyABC
+from app.strategies.base import RFSearchStrategyABC, TextSearchStrategyABC
 
 
 @pytest.fixture
@@ -28,7 +29,9 @@ def logging_app(tmp_path):
     strategy = MagicMock(spec=TextSearchStrategyABC)
     strategy.search = AsyncMock(return_value=[33, 15])
     service = SearchService.__new__(SearchService)
-    service.strategies = {"clip": strategy, "text": strategy}
+    rf_strategy = MagicMock(spec=RFSearchStrategyABC)
+    rf_strategy.search = AsyncMock(return_value=[33, 15])
+    service.strategies = {"clip": strategy, "text": strategy, "rf": rf_strategy}
     legacy = MagicMock()
     legacy.log = AsyncMock()
     legacy.start = AsyncMock()
@@ -58,11 +61,16 @@ def client_event(**overrides):
     }
 
 
-def search_request():
-    return {
+def search_request(endpoint="clip"):
+    body = {
         "session_info": {"session": "test-session", "collection": "test", "modelId": 0},
-        "text": "a red car", "n": 2, "seen": [7, 8], "excluded": [9],
+        "n": 2, "seen": [7, 8], "excluded": [9],
     }
+    if endpoint == "rf":
+        body.update(pos=[5], neg=[6], query="a red car")
+    else:
+        body["text"] = "a red car"
+    return body
 
 
 def read_events(event_log_writer):
@@ -95,11 +103,11 @@ def test_invalid_batch_is_rejected_before_any_event_is_queued(logging_app, inval
     assert not event_log_writer.path_for("test-session").exists()
 
 
-@pytest.mark.parametrize("endpoint", ["clip", "text"])
+@pytest.mark.parametrize("endpoint", ["clip", "text", "rf"])
 def test_search_records_full_inputs_results_and_precise_timing(logging_app, endpoint):
     app, event_log_writer, _, legacy = logging_app
     with TestClient(app) as client:
-        response = client.post(f"/exq/search/{endpoint}", json=search_request(), headers={
+        response = client.post(f"/exq/search/{endpoint}", json=search_request(endpoint), headers={
             "X-Exq-Request-Id": "request-1", "X-Exq-Event-Sequence": "0",
         })
         assert response.status_code == 200
@@ -113,6 +121,11 @@ def test_search_records_full_inputs_results_and_precise_timing(logging_app, endp
     assert event.data["request"]["seen"] == [7, 8]
     assert event.data["request"]["excluded"] == [9]
     assert event.data["suggestions"] == [33, 15]
+    assert event.data["strategy"] == endpoint
+    if endpoint == "rf":
+        assert event.data["request"]["pos"] == [5]
+        assert event.data["request"]["neg"] == [6]
+        assert event.data["request"]["query"] == "a red car"
     assert event.data["started_ms"] <= event.data["completed_ms"]
     assert event.data["started_ms"] > 1_000_000_000_000
     assert event.data["duration_ms"] >= 0
@@ -139,16 +152,26 @@ def test_research_logging_failure_does_not_break_search(logging_app, monkeypatch
     legacy.log.assert_awaited_once()
 
 
-def test_failed_search_preserves_error_and_request_link_when_audit_logging_fails(logging_app):
-    app, event_log_writer, strategy, legacy = logging_app
+@pytest.mark.parametrize("endpoint", ["clip", "text", "rf"])
+def test_failed_search_preserves_error_and_request_link_when_audit_logging_fails(logging_app, endpoint):
+    app, event_log_writer, _, legacy = logging_app
+    strategy = app.dependency_overrides[get_search_service]().strategies[endpoint]
     strategy.search.side_effect = SearchError("test failure")
     legacy.log.side_effect = RuntimeError("audit queue failure")
-    with TestClient(app) as client:
-        response = client.post("/exq/search/clip", json=search_request(), headers={
-            "X-Exq-Request-Id": "request-1", "X-Exq-Event-Sequence": "0",
-        })
-        assert response.status_code == 400
-        assert "test failure" in response.json()["detail"]
+    diagnostics = []
+    sink = logger.add(lambda message: diagnostics.append(message.record))
+    try:
+        with TestClient(app) as client:
+            response = client.post(f"/exq/search/{endpoint}", json=search_request(endpoint), headers={
+                "X-Exq-Request-Id": "request-1", "X-Exq-Event-Sequence": "0",
+            })
+            assert response.status_code == 400
+            assert "test failure" in response.json()["detail"]
+    finally:
+        logger.remove(sink)
+    failure, = [record for record in diagnostics if "test failure" in record["message"]]
+    assert isinstance(failure["exception"].value, SearchError)
+    assert failure["exception"].traceback is not None
     event, = read_events(event_log_writer)
     assert event.type == "error"
     assert event.request_id == "request-1"

@@ -73,7 +73,6 @@ async def clip_search(
             {
                 "query": request.text,
                 "index_name": request.index_name,
-                # Phase 3: log the full seen list, needed to re-run the search.
                 "n_seen": len(request.seen or []),
                 "filters": request.filters.model_dump_json()
                 if request.filters
@@ -91,14 +90,12 @@ async def clip_search(
         return {"suggestions": result["suggestions"]}
 
     except SearchError as e:
-        logger.exception("clip_search failed")
         await logging_service.log_error(
             e, request.session_info.session,
             {"request": request.model_dump(mode="json")}, target="search",
         )
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        logger.exception("clip_search failed")
         await logging_service.log_error(
             e, request.session_info.session,
             {"request": request.model_dump(mode="json")}, target="search",
@@ -126,7 +123,6 @@ async def text_search(
             {
                 "query": request.text,
                 "index_name": request.index_name,
-                # Phase 3: log the full seen list, needed to re-run the search.
                 "n_seen": len(request.seen or []),
                 "filters": request.filters.model_dump_json()
                 if request.filters
@@ -144,14 +140,12 @@ async def text_search(
         return {"suggestions": result["suggestions"]}
 
     except SearchError as e:
-        logger.exception("text_search failed")
         await logging_service.log_error(
             e, request.session_info.session,
             {"request": request.model_dump(mode="json")}, target="search",
         )
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        logger.exception("text_search failed")
         await logging_service.log_error(
             e, request.session_info.session,
             {"request": request.model_dump(mode="json")}, target="search",
@@ -180,7 +174,6 @@ async def rf_search(
                 "pos": request.pos,
                 "neg": request.neg,
                 "index_name": request.index_name,
-                # Phase 3: log the full seen list, needed to re-run the search.
                 "n_seen": len(request.seen),
                 "filters": request.filters.model_dump_json()
                 if request.filters
@@ -192,15 +185,24 @@ async def rf_search(
             result["suggestions"],
             result["request_timestamp"],
             result["completion_time"],
+            request_data=request.model_dump(mode="json"),
+            execution=result,
         )
 
         return {"suggestions": result["suggestions"]}
 
     except SearchError as e:
-        logger.exception("rf_search failed")
+        await logging_service.log_error(
+            e, request.session_info.session,
+            {"request": request.model_dump(mode="json")},
+            target="search",
+        )
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        logger.exception("rf_search failed")
+        await logging_service.log_error(
+            e, request.session_info.session,
+            {"request": request.model_dump(mode="json")}, target="search",
+        )
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e
 
 
