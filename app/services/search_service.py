@@ -147,8 +147,6 @@ class SearchService:
             )
 
             completion_time = int(time.time()) - start_time
-            completed_ms = time.time_ns() // 1_000_000
-            duration_ms = (time.perf_counter() - started) * 1000
             _log_search_done(strategy_name, request.session_info.collection, suggestions, started)
 
             return {
@@ -157,8 +155,8 @@ class SearchService:
                 "completion_time": completion_time,
                 "strategy": strategy_name,
                 "started_ms": started_ms,
-                "completed_ms": completed_ms,
-                "duration_ms": duration_ms,
+                "completed_ms": time.time_ns() // 1_000_000,
+                "duration_ms": (time.perf_counter() - started) * 1000,
             }
 
         except Exception as e:
@@ -197,8 +195,6 @@ class SearchService:
             )
 
             completion_time = int(time.time()) - start_time
-            completed_ms = time.time_ns() // 1_000_000
-            duration_ms = (time.perf_counter() - started) * 1000
             _log_search_done("rf", request.session_info.collection, suggestions, started)
 
             return {
@@ -207,8 +203,8 @@ class SearchService:
                 "completion_time": completion_time,
                 "strategy": "rf",
                 "started_ms": started_ms,
-                "completed_ms": completed_ms,
-                "duration_ms": duration_ms,
+                "completed_ms": time.time_ns() // 1_000_000,
+                "duration_ms": (time.perf_counter() - started) * 1000,
             }
 
         except Exception as e:
