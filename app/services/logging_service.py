@@ -252,9 +252,8 @@ class LoggingService:
         """
         if request_data is not None and execution is not None:
             await self.log_event("query_execution", "search", session, {
-                # Keep strategy-specific execution facts, including future RF
-                # samples or resolved index/model context. Only legacy timing
-                # fields belong exclusively to the old audit representation.
+                # Keep execution timing and strategy; legacy timing fields
+                # belong exclusively to the old audit representation.
                 **{key: value for key, value in execution.items()
                    if key not in {"request_timestamp", "completion_time", "suggestions"}},
                 "request": request_data,
@@ -339,7 +338,7 @@ class LoggingService:
         self, error: Exception, session: str, context: Dict[str, Any],
         *, target: EventTarget = "session",
     ):
-        """Log application errors."""
+        """Record an error in event/audit logs and diagnostics with its traceback."""
         await self.log_event("error", target, session, {
             "message": str(error),
             "error_type": type(error).__name__,
@@ -360,7 +359,7 @@ class LoggingService:
             logger.exception("Failed to queue error in legacy audit log")
 
         # Also log to the diagnostic log
-        logger.error(
+        logger.opt(exception=error).error(
             "{}: {} (session={}, context={}, details={})",
             type(error).__name__,
             error,
