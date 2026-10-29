@@ -107,8 +107,15 @@ def get_item_service(
 
 def get_logging_service(
     request: Request,
-    request_id: str | None = Header(default=None, alias="X-Exq-Request-Id", max_length=64),
-    sequence: int | None = Header(default=None, alias="X-Exq-Event-Sequence", ge=0),
+    request_id: str | None = Header(default=None, alias="X-Exq-Request-Id"),
+    sequence: str | None = Header(default=None, alias="X-Exq-Event-Sequence"),
 ) -> LoggingService:
-    """Resolve logging context once per request, with application-owned writers."""
-    return request.app.state.logging_service.for_request(request_id, sequence)
+    """Resolve logging context once per request, with application-owned writers.
+
+    Invalid logging headers only disable the research event; they never reject
+    the request itself.
+    """
+    if request_id is not None and not 1 <= len(request_id) <= 64:
+        request_id = None
+    parsed_sequence = int(sequence) if sequence is not None and sequence.isdigit() else None
+    return request.app.state.logging_service.for_request(request_id, parsed_sequence)

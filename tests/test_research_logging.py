@@ -197,6 +197,20 @@ def test_old_search_clients_keep_working_without_invented_sequence(logging_app):
     legacy.log.assert_awaited_once()
 
 
+@pytest.mark.parametrize("headers", [
+    {"X-Exq-Request-Id": "r" * 65, "X-Exq-Event-Sequence": "0"},
+    {"X-Exq-Request-Id": "request-1", "X-Exq-Event-Sequence": "-1"},
+    {"X-Exq-Request-Id": "request-1", "X-Exq-Event-Sequence": "abc"},
+])
+def test_invalid_logging_headers_skip_the_event_but_not_the_search(logging_app, headers):
+    app, event_log_writer, _, legacy = logging_app
+    with TestClient(app) as client:
+        response = client.post("/exq/search/clip", json=search_request(), headers=headers)
+        assert response.status_code == 200
+    assert not event_log_writer.path_for("test-session").exists()
+    legacy.log.assert_awaited_once()
+
+
 def test_research_logging_failure_does_not_break_search(logging_app, monkeypatch):
     app, event_log_writer, _, legacy = logging_app
     monkeypatch.setattr(event_log_writer, "write", AsyncMock(side_effect=RuntimeError("queue failure")))
