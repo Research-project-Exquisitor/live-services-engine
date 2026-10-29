@@ -37,7 +37,6 @@ or for ``/temporal`` the ranked `TemporalChain` objects.
 from typing import Any, Dict
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from loguru import logger
 
 from ...schemas import (
     FacetedSearchRequest,
@@ -241,15 +240,23 @@ async def temporal_search(
             chains,
             result["request_timestamp"],
             result["completion_time"],
+            request_data=request.model_dump(mode="json"),
+            execution=result,
         )
 
         return {"suggestions": chains}
 
     except SearchError as e:
-        logger.exception("temporal_search failed")
+        await logging_service.log_error(
+            e, request.session_info.session,
+            {"request": request.model_dump(mode="json")}, target="search",
+        )
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        logger.exception("temporal_search failed")
+        await logging_service.log_error(
+            e, request.session_info.session,
+            {"request": request.model_dump(mode="json")}, target="search",
+        )
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e
 
 
@@ -277,13 +284,21 @@ async def faceted_search(
             result["suggestions"],
             result["request_timestamp"],
             result["completion_time"],
+            request_data=request.model_dump(mode="json"),
+            execution=result,
         )
 
         return {"suggestions": result["suggestions"]}
 
     except SearchError as e:
-        logger.exception("faceted_search failed")
+        await logging_service.log_error(
+            e, request.session_info.session,
+            {"request": request.model_dump(mode="json")}, target="search",
+        )
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        logger.exception("faceted_search failed")
+        await logging_service.log_error(
+            e, request.session_info.session,
+            {"request": request.model_dump(mode="json")}, target="search",
+        )
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e

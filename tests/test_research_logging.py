@@ -16,11 +16,20 @@ from loguru import logger
 from app.api.dependencies import get_search_service
 from app.api.routes import admin, search
 from app.core.exceptions import SearchError
+from app.schemas import TemporalChain
 from app.schemas.logging import LogEvent
 from app.services.event_log_writer import EventLogWriter
 from app.services.logging_service import LoggingService
 from app.services.search_service import SearchService
-from app.strategies.base import RFSearchStrategyABC, TextSearchStrategyABC
+from app.strategies.base import (
+    FacetedSearchStrategyABC, RFSearchStrategyABC, TemporalSearchStrategyABC, TextSearchStrategyABC,
+)
+
+
+TEMPORAL_CHAIN = TemporalChain(group=1, items=[33, 15], length=2, score=0.5, start_ms=0, end_ms=9000)
+FACETED_FILTERS = {"root": {"kind": "leaf", "filter": {
+    "id": 1, "tagtype_id": 1, "constraint": {"value_ids": [3]},
+}}}
 
 
 @pytest.fixture
@@ -31,7 +40,14 @@ def logging_app(tmp_path):
     service = SearchService.__new__(SearchService)
     rf_strategy = MagicMock(spec=RFSearchStrategyABC)
     rf_strategy.search = AsyncMock(return_value=[33, 15])
-    service.strategies = {"clip": strategy, "text": strategy, "rf": rf_strategy}
+    temporal_strategy = MagicMock(spec=TemporalSearchStrategyABC)
+    temporal_strategy.search = AsyncMock(return_value=[TEMPORAL_CHAIN])
+    faceted_strategy = MagicMock(spec=FacetedSearchStrategyABC)
+    faceted_strategy.search = AsyncMock(return_value=[33, 15])
+    service.strategies = {
+        "clip": strategy, "text": strategy, "rf": rf_strategy,
+        "temporal": temporal_strategy, "faceted": faceted_strategy,
+    }
     legacy = MagicMock()
     legacy.log = AsyncMock()
     legacy.start = AsyncMock()
@@ -68,6 +84,10 @@ def search_request(endpoint="clip"):
     }
     if endpoint == "rf":
         body.update(pos=[5], neg=[6], query="a red car")
+    elif endpoint == "temporal":
+        body["hops"] = [{"kind": "query", "text": "a red car"}, {"kind": "query", "text": "a blue car"}]
+    elif endpoint == "faceted":
+        body = {"session_info": body["session_info"], "n": 2, "filters": FACETED_FILTERS}
     else:
         body["text"] = "a red car"
     return body
@@ -132,6 +152,43 @@ def test_search_records_full_inputs_results_and_precise_timing(logging_app, endp
     legacy.log.assert_awaited_once()
 
 
+def test_temporal_search_records_hops_and_chains(logging_app):
+    app, event_log_writer, _, legacy = logging_app
+    with TestClient(app) as client:
+        response = client.post("/exq/search/temporal", json=search_request("temporal"), headers={
+            "X-Exq-Request-Id": "request-1", "X-Exq-Event-Sequence": "0",
+        })
+        assert response.status_code == 200
+    chain = TEMPORAL_CHAIN.model_dump(mode="json")
+    assert response.json() == {"suggestions": [chain]}
+    event, = read_events(event_log_writer)
+    assert event.type == "query_execution"
+    assert event.request_id == "request-1"
+    assert event.data["strategy"] == "temporal"
+    assert [hop["text"] for hop in event.data["request"]["hops"]] == ["a red car", "a blue car"]
+    assert event.data["request"]["seen"] == [7, 8]
+    assert event.data["suggestions"] == [chain]
+    assert event.data["duration_ms"] >= 0
+    legacy.log.assert_awaited_once()
+
+
+def test_faceted_search_records_filters_and_results(logging_app):
+    app, event_log_writer, _, legacy = logging_app
+    with TestClient(app) as client:
+        response = client.post("/exq/search/faceted", json=search_request("faceted"), headers={
+            "X-Exq-Request-Id": "request-1", "X-Exq-Event-Sequence": "0",
+        })
+        assert response.status_code == 200
+        assert response.json() == {"suggestions": [33, 15]}
+    event, = read_events(event_log_writer)
+    assert event.type == "query_execution"
+    assert event.data["strategy"] == "faceted"
+    assert event.data["request"]["filters"]["root"]["filter"]["constraint"]["value_ids"] == [3]
+    assert event.data["suggestions"] == [33, 15]
+    assert event.data["started_ms"] <= event.data["completed_ms"]
+    legacy.log.assert_awaited_once()
+
+
 def test_old_search_clients_keep_working_without_invented_sequence(logging_app):
     app, event_log_writer, _, legacy = logging_app
     with TestClient(app) as client:
@@ -152,7 +209,7 @@ def test_research_logging_failure_does_not_break_search(logging_app, monkeypatch
     legacy.log.assert_awaited_once()
 
 
-@pytest.mark.parametrize("endpoint", ["clip", "text", "rf"])
+@pytest.mark.parametrize("endpoint", ["clip", "text", "rf", "temporal", "faceted"])
 def test_failed_search_preserves_error_and_request_link_when_audit_logging_fails(logging_app, endpoint):
     app, event_log_writer, _, legacy = logging_app
     strategy = app.dependency_overrides[get_search_service]().strategies[endpoint]
