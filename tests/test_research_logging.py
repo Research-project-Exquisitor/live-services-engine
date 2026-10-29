@@ -240,7 +240,7 @@ def test_failed_search_preserves_error_and_request_link_when_audit_logging_fails
             assert "test failure" in response.json()["detail"]
     finally:
         logger.remove(sink)
-    failure, = [record for record in diagnostics if "test failure" in record["message"]]
+    failure, = [record for record in diagnostics if record["exception"] is not None]
     assert isinstance(failure["exception"].value, SearchError)
     assert failure["exception"].traceback is not None
     event, = read_events(event_log_writer)

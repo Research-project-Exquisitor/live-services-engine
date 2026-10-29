@@ -147,10 +147,25 @@ class AuditLogger:
         self._write_log_sync(log_entry)
 
 
+class SearchTimer:
+    """Times a search from the route, so `SearchService` needs no logging code."""
+
+    def __init__(self):
+        self._started_ms = time.time_ns() // 1_000_000
+        self._started = time.perf_counter()
+
+    def timing(self) -> Dict[str, Any]:
+        return {
+            "started_ms": self._started_ms,
+            "completed_ms": time.time_ns() // 1_000_000,
+            "duration_ms": (time.perf_counter() - self._started) * 1000,
+        }
+
+
 # Stays in Phase 3, but its methods will build `LogEvent`s and write them to
 # `EventLogWriter` instead of free-text entries to `AuditLogger`.
 class LoggingService:
-    """Service for managing all logging operations."""
+    """Research events and the legacy audit log; developer logging is Loguru's `logger`."""
 
     def __init__(
         self,
@@ -231,6 +246,41 @@ class LoggingService:
             },
         )
 
+    async def log_query_execution(
+        self,
+        session: str,
+        request_data: Dict[str, Any],
+        execution: Dict[str, Any],
+        suggestions: list,
+        timer: "SearchTimer",
+    ) -> None:
+        """Record a finished search as a ``query_execution`` research event.
+
+        Awaited before the response, so ``time.server`` stays before the client's
+        response event. The whole-second fields in `execution` belong to the
+        old audit log only.
+        """
+        await self.log_event("query_execution", "search", session, {
+            **{key: value for key, value in execution.items()
+               if key not in {"request_timestamp", "completion_time", "suggestions"}},
+            **timer.timing(),
+            "request": request_data,
+            "suggestions": suggestions,
+        })
+
+    async def log_search_error(
+        self, session: str, request_data: Dict[str, Any], error: Exception,
+    ) -> None:
+        """Record a failed search as an ``error`` research event.
+
+        The route already logs the traceback to the developer log.
+        """
+        await self.log_event("error", "search", session, {
+            "message": str(error),
+            "error_type": type(error).__name__,
+            "context": {"request": request_data},
+        })
+
     async def log_search_request(
         self,
         action: str,
@@ -241,24 +291,8 @@ class LoggingService:
         suggestions: list,
         request_timestamp: int,
         completion_time: int,
-        *,
-        request_data: Dict[str, Any] | None = None,
-        execution: Dict[str, Any] | None = None,
     ):
-        """Log any search family, with structured data for migrated callers.
-
-        Request and result payloads can contain text, RF inputs or temporal
-        chains. The facade does not depend on a particular search request model.
-        """
-        if request_data is not None and execution is not None:
-            await self.log_event("query_execution", "search", session, {
-                # Keep execution timing and strategy; legacy timing fields
-                # belong exclusively to the old audit representation.
-                **{key: value for key, value in execution.items()
-                   if key not in {"request_timestamp", "completion_time", "suggestions"}},
-                "request": request_data,
-                "suggestions": suggestions,
-            })
+        """Write a search to the legacy audit log."""
         await self.audit_logger.log(
             action=action,
             session=session,

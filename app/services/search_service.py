@@ -128,10 +128,9 @@ class SearchService:
         if not isinstance(strategy, TextSearchStrategyABC):
             raise SearchError(f"Strategy {strategy_name} does not support text search")
 
-        # Preserve legacy audit timing during migration. Research events use
-        # millisecond timestamps and a monotonic duration instead.
+        # Old audit-log timing in whole seconds. Phase 3 replaces start_time and
+        # completion_time with one millisecond duration used by both logs.
         start_time = int(time.time())
-        started_ms = time.time_ns() // 1_000_000
         started = time.perf_counter()
         logger.debug("{} search started in {}", strategy_name, request.session_info.collection)
 
@@ -154,9 +153,6 @@ class SearchService:
                 "request_timestamp": start_time,
                 "completion_time": completion_time,
                 "strategy": strategy_name,
-                "started_ms": started_ms,
-                "completed_ms": time.time_ns() // 1_000_000,
-                "duration_ms": (time.perf_counter() - started) * 1000,
             }
 
         except Exception as e:
@@ -175,9 +171,9 @@ class SearchService:
         if not isinstance(strategy, RFSearchStrategyABC):
             raise SearchError("RF strategy not properly configured")
 
-        # Keep legacy timing while research events use precise timestamps.
+        # Old audit-log timing in whole seconds. Phase 3 replaces start_time and
+        # completion_time with one millisecond duration used by both logs.
         start_time = int(time.time())
-        started_ms = time.time_ns() // 1_000_000
         started = time.perf_counter()
         logger.debug("rf search started in {}", request.session_info.collection)
 
@@ -202,9 +198,6 @@ class SearchService:
                 "request_timestamp": start_time,
                 "completion_time": completion_time,
                 "strategy": "rf",
-                "started_ms": started_ms,
-                "completed_ms": time.time_ns() // 1_000_000,
-                "duration_ms": (time.perf_counter() - started) * 1000,
             }
 
         except Exception as e:
@@ -223,9 +216,9 @@ class SearchService:
         if not isinstance(strategy, FacetedSearchStrategyABC):
             raise SearchError("Faceted strategy not properly configured")
 
-        # Keep legacy timing while research events use precise timestamps.
+        # Old audit-log timing in whole seconds. Phase 3 replaces start_time and
+        # completion_time with one millisecond duration used by both logs.
         start_time = int(time.time())
-        started_ms = time.time_ns() // 1_000_000
         started = time.perf_counter()
         logger.debug("faceted search started in {}", request.session_info.collection)
 
@@ -244,9 +237,6 @@ class SearchService:
                 "request_timestamp": start_time,
                 "completion_time": completion_time,
                 "strategy": "faceted",
-                "started_ms": started_ms,
-                "completed_ms": time.time_ns() // 1_000_000,
-                "duration_ms": (time.perf_counter() - started) * 1000,
             }
         except Exception as e:
             raise SearchError(
@@ -263,9 +253,9 @@ class SearchService:
         if not isinstance(strategy, TemporalSearchStrategyABC):
             raise SearchError("Temporal strategy not properly configured")
 
-        # Keep legacy timing while research events use precise timestamps.
+        # Old audit-log timing in whole seconds. Phase 3 replaces start_time and
+        # completion_time with one millisecond duration used by both logs.
         start_time = int(time.time())
-        started_ms = time.time_ns() // 1_000_000
         started = time.perf_counter()
         logger.debug("temporal search started in {}", request.session_info.collection)
 
@@ -292,9 +282,6 @@ class SearchService:
                 "request_timestamp": start_time,
                 "completion_time": completion_time,
                 "strategy": "temporal",
-                "started_ms": started_ms,
-                "completed_ms": time.time_ns() // 1_000_000,
-                "duration_ms": (time.perf_counter() - started) * 1000,
             }
 
         except Exception as e:
