@@ -17,7 +17,7 @@
 """Diagnostic logging setup (Loguru).
 
 This is the developer-facing log: what the server is doing and why it failed.
-It is separate from the research event log (`app.services.event_log`), which
+It is separate from the research event log (`app.services.event_log_writer`), which
 never depends on a log level.
 
 Level policy:

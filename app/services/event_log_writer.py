@@ -16,7 +16,7 @@
 
 """Research event log: one JSON line per `LogEvent`, one file per session.
 
-Events are validated by `LogEvent` before they get here. `EventLog.write`
+Events are validated by `LogEvent` before they get here. `EventLogWriter.write`
 stamps ``time.server`` the moment an event is received (not when it is
 flushed), then a background worker appends it to
 ``<directory>/session-<session_id>.jsonl``. Requests never wait on disk.
@@ -41,7 +41,7 @@ def now_ms() -> int:
     return time.time_ns() // 1_000_000
 
 
-class EventLog:
+class EventLogWriter:
     """Append-only JSONL writer for research events."""
 
     def __init__(self, directory: str):

@@ -14,7 +14,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-"""Tests for the research event model (`LogEvent`) and its writer (`EventLog`)."""
+"""Tests for the research event model (`LogEvent`) and its writer (`EventLogWriter`)."""
 
 import asyncio
 import json
@@ -26,7 +26,7 @@ from pydantic import ValidationError
 
 from app.core.logging_setup import setup_logging
 from app.schemas import LogEvent
-from app.services.event_log import EventLog
+from app.services.event_log_writer import EventLogWriter
 
 
 def client_event(**overrides) -> dict:
@@ -87,34 +87,34 @@ class TestLogEvent:
         assert ordered == [request, execution, later]
 
 
-class TestEventLog:
+class TestEventLogWriter:
     def test_writes_one_json_line_per_event_per_session(self, tmp_path):
         async def run():
-            event_log = EventLog(str(tmp_path))
-            await event_log.start()
-            await event_log.write(LogEvent(**client_event(sequence=0)))
-            await event_log.write(LogEvent(**client_event(sequence=1)))
-            await event_log.write(LogEvent(**client_event(session_id="s-2")))
-            await event_log.stop()
-            return event_log
+            event_log_writer = EventLogWriter(str(tmp_path))
+            await event_log_writer.start()
+            await event_log_writer.write(LogEvent(**client_event(sequence=0)))
+            await event_log_writer.write(LogEvent(**client_event(sequence=1)))
+            await event_log_writer.write(LogEvent(**client_event(session_id="s-2")))
+            await event_log_writer.stop()
+            return event_log_writer
 
-        event_log = asyncio.run(run())
+        event_log_writer = asyncio.run(run())
 
-        lines = event_log.path_for("s-1").read_text().splitlines()
+        lines = event_log_writer.path_for("s-1").read_text().splitlines()
         assert [json.loads(line)["sequence"] for line in lines] == [0, 1]
-        assert len(event_log.path_for("s-2").read_text().splitlines()) == 1
+        assert len(event_log_writer.path_for("s-2").read_text().splitlines()) == 1
 
     def test_stamps_server_time_on_receipt(self, tmp_path):
         async def run():
-            event_log = EventLog(str(tmp_path))
-            await event_log.start()
-            await event_log.write(LogEvent(**client_event()))
-            await event_log.stop()
-            return event_log
+            event_log_writer = EventLogWriter(str(tmp_path))
+            await event_log_writer.start()
+            await event_log_writer.write(LogEvent(**client_event()))
+            await event_log_writer.stop()
+            return event_log_writer
 
-        event_log = asyncio.run(run())
+        event_log_writer = asyncio.run(run())
 
-        written = json.loads(event_log.path_for("s-1").read_text())
+        written = json.loads(event_log_writer.path_for("s-1").read_text())
         assert written["v"] == 1
         assert written["time"]["client"] == 1_727_681_234_567
         assert written["time"]["server"] > written["time"]["client"]
