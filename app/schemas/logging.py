@@ -14,21 +14,12 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-"""Logging schemas: the research event model and the legacy client event.
-
-`LogEvent` is the common event envelope from the logging framework
-(``research-workspace/notes/logging-framework.md`` §3). Client and server
-events both use it; every event is written as one JSON line by
-`app.services.event_log_writer.EventLogWriter`.
-
-`ClientEventRequest` is the old payload of ``POST /exq/log/clientEvent``. It
-stays until the client events move to `LogEvent`.
-"""
+"""Validated research events shared by the browser and server."""
 
 from __future__ import annotations
 
 import uuid
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -147,34 +138,3 @@ class ClientLogEvent(LogEvent):
         if self.time.server is not None:
             raise ValueError("time.server is assigned by the server")
         return self
-
-
-class ClientEventRequest(BaseModel):
-    """Request model for logging client-side events.
-
-    Attributes:
-        ts: Timestamp of the event
-        action: Description of the action taken by the user
-        element_id: Optional stable identifier for the UI element involved
-        data: Optional additional data related to the event
-        route: Optional route or page where the event occurred
-        session: Unique identifier for the search session
-    """
-
-    ts: float
-    """Timestamp of the event (Unix epoch seconds)."""
-
-    action: str
-    """Description of the action taken by the user (e.g. ``'click'``, ``'scroll'``)."""
-
-    element_id: Optional[str] = None
-    """Stable identifier for the UI element involved, if any."""
-
-    data: Optional[Union[str, float, bool]] = None
-    """Optional payload associated with the event."""
-
-    route: Optional[str] = None
-    """Client-side route or page where the event occurred."""
-
-    session: str
-    """Session identifier linking this event to a search session."""

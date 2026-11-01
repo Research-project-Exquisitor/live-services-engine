@@ -28,13 +28,12 @@ Defines POST endpoints under ``/exq/item/``:
   sorted by a tagset's values (``sortBy``, ``sortOrder``).
 - ``/excluded`` -- check whether an item belongs to any excluded group.
 
-All endpoints delegate to `ItemService` and schedule background audit-log
-tasks for every request.
+All endpoints delegate to `ItemService`. Fetches appear only in diagnostic logs.
 """
 
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 
 from app.core.exceptions import DatabaseError
@@ -47,8 +46,7 @@ from ...schemas import (
     RelatedItemsRequest,
 )
 from ...services.item_service import ItemService
-from ...services.logging_service import LoggingService
-from ..dependencies import get_item_service, get_logging_service
+from ..dependencies import get_item_service
 
 router = APIRouter(prefix="/exq", tags=["items"])
 
@@ -57,9 +55,7 @@ router = APIRouter(prefix="/exq", tags=["items"])
 @router.post("/item/base", deprecated=True)
 async def get_item_base_info(
     request: ItemRequest,
-    background_tasks: BackgroundTasks,
     item_service: ItemService = Depends(get_item_service),
-    logging_service: LoggingService = Depends(get_logging_service),
 ) -> Dict[str, Any]:
     """Get basic information for an item.
 
@@ -69,16 +65,6 @@ async def get_item_base_info(
     try:
         result = item_service.get_item_info(request)
 
-        background_tasks.add_task(
-            logging_service.log_item_request,
-            "Get Info For Item",
-            request.session_info.session,
-            request.session_info.modelId,
-            request.session_info.collection,
-            request.mediaId,
-            result["name"],
-            {"mediaType": result["mediaType"]},
-        )
 
         return result
 
@@ -93,9 +79,7 @@ async def get_item_base_info(
 @router.post("/item/info/batch")
 async def get_items_base_info(
     request: ItemBatchRequest,
-    background_tasks: BackgroundTasks,
     item_service: ItemService = Depends(get_item_service),
-    logging_service: LoggingService = Depends(get_logging_service),
 ) -> Dict[str, List[Any]]:
     """Get basic information for many items in one call.
 
@@ -106,16 +90,6 @@ async def get_items_base_info(
     try:
         result = item_service.get_items_info(request)
 
-        background_tasks.add_task(
-            logging_service.log_item_request,
-            "Get Info For Items",
-            request.session_info.session,
-            request.session_info.modelId,
-            request.session_info.collection,
-            request.mediaIds,
-            [item["name"] for item in result["items"]],
-            {"missing": result["missing"]},
-        )
 
         return result
 
@@ -130,9 +104,7 @@ async def get_items_base_info(
 @router.post("/item/details", deprecated=True)
 async def get_item_detailed_info(
     request: ItemDetailRequest,
-    background_tasks: BackgroundTasks,
     item_service: ItemService = Depends(get_item_service),
-    logging_service: LoggingService = Depends(get_logging_service),
 ) -> Dict[str, Any]:
     """Get detailed information for an item.
 
@@ -143,15 +115,6 @@ async def get_item_detailed_info(
     try:
         result = item_service.get_item_detailed_info(request)
 
-        background_tasks.add_task(
-            logging_service.log_item_request,
-            "Get Detailed Info For Item",
-            request.session_info.session,
-            request.session_info.modelId,
-            request.session_info.collection,
-            request.mediaId,
-            request.mediaId,
-        )
 
         return result
 
@@ -166,9 +129,7 @@ async def get_item_detailed_info(
 @router.post("/item/related")
 async def get_related_items(
     request: RelatedItemsRequest,
-    background_tasks: BackgroundTasks,
     item_service: ItemService = Depends(get_item_service),
-    logging_service: LoggingService = Depends(get_logging_service),
 ) -> Dict[str, List[int]]:
     """Get related items for an item, optionally sorted by a tagset's values."""
     try:
@@ -176,19 +137,7 @@ async def get_related_items(
             request, sort_by=request.sortBy, sort_order=request.sortOrder
         )
 
-        info = item_service.get_item_info(
-            ItemRequest(mediaId=request.mediaId, session_info=request.session_info)
-        )
 
-        background_tasks.add_task(
-            logging_service.log_item_request,
-            "Get Related Info For Item",
-            request.session_info.session,
-            request.session_info.modelId,
-            request.session_info.collection,
-            request.mediaId,
-            info["name"],
-        )
 
         return result
 
@@ -203,28 +152,13 @@ async def get_related_items(
 @router.post("/item/excluded")
 async def is_item_excluded(
     request: IsExcludedRequest,
-    background_tasks: BackgroundTasks,
     item_service: ItemService = Depends(get_item_service),
-    logging_service: LoggingService = Depends(get_logging_service),
 ) -> Dict[str, bool]:
     """Check if item is in an excluded group."""
     try:
         result = item_service.is_item_excluded(request)
 
-        info = item_service.get_item_info(
-            ItemRequest(mediaId=request.itemId, session_info=request.session_info)
-        )
 
-        background_tasks.add_task(
-            logging_service.log_item_request,
-            "Check if item is in excluded group",
-            request.session_info.session,
-            request.session_info.modelId,
-            request.session_info.collection,
-            request.itemId,
-            info["name"],
-            {"excluded": result["excludedOrNot"]},
-        )
 
         return result
 

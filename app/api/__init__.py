@@ -24,7 +24,7 @@ Modules
 dependencies
     FastAPI ``Depends`` callables that resolve the `ApplicationContainer`
     singletons into per-request service instances (`SearchService`,
-    `ItemService`, `LoggingService`).
+    `ItemService`, `ResearchLog`).
 
 Subpackages
 -----------

@@ -19,7 +19,7 @@ from app.core.exceptions import SearchError
 from app.schemas import TemporalChain
 from app.schemas.logging import LogEvent
 from app.services.event_log_writer import EventLogWriter
-from app.services.logging_service import LoggingService
+from app.services.research_log import ResearchLog
 from app.services.search_service import SearchService
 from app.strategies.base import (
     FacetedSearchStrategyABC, RFSearchStrategyABC, TemporalSearchStrategyABC, TextSearchStrategyABC,
@@ -48,24 +48,20 @@ def logging_app(tmp_path):
         "clip": strategy, "text": strategy, "rf": rf_strategy,
         "temporal": temporal_strategy, "faceted": faceted_strategy,
     }
-    legacy = MagicMock()
-    legacy.log = AsyncMock()
-    legacy.start = AsyncMock()
-    legacy.stop = AsyncMock()
-    logging_service = LoggingService(legacy, event_log_writer)
+    research_log = ResearchLog(event_log_writer)
 
     @asynccontextmanager
     async def lifespan(app):
-        app.state.logging_service = logging_service
-        await logging_service.start()
+        app.state.research_log = research_log
+        await research_log.start()
         yield
-        await logging_service.stop()
+        await research_log.stop()
 
     app = FastAPI(lifespan=lifespan)
     app.include_router(admin.router)
     app.include_router(search.router)
     app.dependency_overrides[get_search_service] = lambda: service
-    return app, event_log_writer, strategy, legacy
+    return app, event_log_writer, strategy
 
 
 def client_event(**overrides):
@@ -99,9 +95,9 @@ def read_events(event_log_writer):
 
 
 def test_validated_client_events_receive_server_time(logging_app):
-    app, event_log_writer, _, _ = logging_app
+    app, event_log_writer, _ = logging_app
     with TestClient(app) as client:
-        response = client.post("/exq/log/clientEventV2", json=[client_event(request_id="search-1")],
+        response = client.post("/exq/log/clientEvent", json=[client_event(request_id="search-1")],
                                headers={"X-Exq-Request-Id": "delivery-1"})
         assert response.status_code == 202
         assert response.json() == {"accepted": 1}
@@ -116,16 +112,16 @@ def test_validated_client_events_receive_server_time(logging_app):
     {"source": "server"}, {"time": {"client": 1, "server": 2}},
 ])
 def test_invalid_batch_is_rejected_before_any_event_is_queued(logging_app, invalid):
-    app, event_log_writer, _, _ = logging_app
+    app, event_log_writer, _ = logging_app
     with TestClient(app) as client:
-        response = client.post("/exq/log/clientEventV2", json=[client_event(), client_event(**invalid)])
+        response = client.post("/exq/log/clientEvent", json=[client_event(), client_event(**invalid)])
         assert response.status_code == 422
     assert not event_log_writer.path_for("test-session").exists()
 
 
 @pytest.mark.parametrize("endpoint", ["clip", "text", "rf"])
 def test_search_records_full_inputs_results_and_precise_timing(logging_app, endpoint):
-    app, event_log_writer, _, legacy = logging_app
+    app, event_log_writer, _ = logging_app
     with TestClient(app) as client:
         response = client.post(f"/exq/search/{endpoint}", json=search_request(endpoint), headers={
             "X-Exq-Request-Id": "request-1", "X-Exq-Event-Sequence": "0",
@@ -149,11 +145,10 @@ def test_search_records_full_inputs_results_and_precise_timing(logging_app, endp
     assert event.data["started_ms"] <= event.data["completed_ms"]
     assert event.data["started_ms"] > 1_000_000_000_000
     assert event.data["duration_ms"] >= 0
-    legacy.log.assert_awaited_once()
 
 
 def test_temporal_search_records_hops_and_chains(logging_app):
-    app, event_log_writer, _, legacy = logging_app
+    app, event_log_writer, _ = logging_app
     with TestClient(app) as client:
         response = client.post("/exq/search/temporal", json=search_request("temporal"), headers={
             "X-Exq-Request-Id": "request-1", "X-Exq-Event-Sequence": "0",
@@ -169,11 +164,10 @@ def test_temporal_search_records_hops_and_chains(logging_app):
     assert event.data["request"]["seen"] == [7, 8]
     assert event.data["suggestions"] == [chain]
     assert event.data["duration_ms"] >= 0
-    legacy.log.assert_awaited_once()
 
 
 def test_faceted_search_records_filters_and_results(logging_app):
-    app, event_log_writer, _, legacy = logging_app
+    app, event_log_writer, _ = logging_app
     with TestClient(app) as client:
         response = client.post("/exq/search/faceted", json=search_request("faceted"), headers={
             "X-Exq-Request-Id": "request-1", "X-Exq-Event-Sequence": "0",
@@ -186,33 +180,31 @@ def test_faceted_search_records_filters_and_results(logging_app):
     assert event.data["request"]["filters"]["root"]["filter"]["constraint"]["value_ids"] == [3]
     assert event.data["suggestions"] == [33, 15]
     assert event.data["started_ms"] <= event.data["completed_ms"]
-    legacy.log.assert_awaited_once()
 
 
 def test_old_search_clients_keep_working_without_invented_sequence(logging_app):
-    app, event_log_writer, _, legacy = logging_app
+    app, event_log_writer, _ = logging_app
     with TestClient(app) as client:
         assert client.post("/exq/search/clip", json=search_request()).status_code == 200
     assert not event_log_writer.path_for("test-session").exists()
-    legacy.log.assert_awaited_once()
 
 
 @pytest.mark.parametrize("headers", [
     {"X-Exq-Request-Id": "r" * 65, "X-Exq-Event-Sequence": "0"},
     {"X-Exq-Request-Id": "request-1", "X-Exq-Event-Sequence": "-1"},
     {"X-Exq-Request-Id": "request-1", "X-Exq-Event-Sequence": "abc"},
+    {"X-Exq-Request-Id": "request-1", "X-Exq-Event-Sequence": "9" * 5000},
 ])
 def test_invalid_logging_headers_skip_the_event_but_not_the_search(logging_app, headers):
-    app, event_log_writer, _, legacy = logging_app
+    app, event_log_writer, _ = logging_app
     with TestClient(app) as client:
         response = client.post("/exq/search/clip", json=search_request(), headers=headers)
         assert response.status_code == 200
     assert not event_log_writer.path_for("test-session").exists()
-    legacy.log.assert_awaited_once()
 
 
 def test_research_logging_failure_does_not_break_search(logging_app, monkeypatch):
-    app, event_log_writer, _, legacy = logging_app
+    app, event_log_writer, _ = logging_app
     monkeypatch.setattr(event_log_writer, "write", AsyncMock(side_effect=RuntimeError("queue failure")))
     with TestClient(app) as client:
         response = client.post("/exq/search/clip", json=search_request(), headers={
@@ -220,15 +212,13 @@ def test_research_logging_failure_does_not_break_search(logging_app, monkeypatch
         })
         assert response.status_code == 200
         assert response.json() == {"suggestions": [33, 15]}
-    legacy.log.assert_awaited_once()
 
 
 @pytest.mark.parametrize("endpoint", ["clip", "text", "rf", "temporal", "faceted"])
-def test_failed_search_preserves_error_and_request_link_when_audit_logging_fails(logging_app, endpoint):
-    app, event_log_writer, _, legacy = logging_app
+def test_failed_search_preserves_error_and_request_link(logging_app, endpoint):
+    app, event_log_writer, _ = logging_app
     strategy = app.dependency_overrides[get_search_service]().strategies[endpoint]
     strategy.search.side_effect = SearchError("test failure")
-    legacy.log.side_effect = RuntimeError("audit queue failure")
     diagnostics = []
     sink = logger.add(lambda message: diagnostics.append(message.record))
     try:
@@ -250,15 +240,15 @@ def test_failed_search_preserves_error_and_request_link_when_audit_logging_fails
 
 
 def test_intake_does_not_acknowledge_failed_queueing(logging_app, monkeypatch):
-    app, event_log_writer, _, _ = logging_app
+    app, event_log_writer, _ = logging_app
     monkeypatch.setattr(event_log_writer, "write", AsyncMock(side_effect=RuntimeError("queue failure")))
     with TestClient(app, raise_server_exceptions=False) as client:
-        response = client.post("/exq/log/clientEventV2", json=[client_event()])
+        response = client.post("/exq/log/clientEvent", json=[client_event()])
         assert response.status_code == 500
 
 
 def test_concurrent_http_requests_keep_logging_context_isolated(logging_app):
-    app, event_log_writer, strategy, _ = logging_app
+    app, event_log_writer, strategy = logging_app
     arrivals = 0
     both_arrived = None
 
@@ -292,3 +282,17 @@ def test_concurrent_http_requests_keep_logging_context_isolated(logging_app):
         assert event.session_id == f"s-{suffix}"
         assert event.sequence == sequence
         assert event.request_id == f"r-{suffix}"
+
+
+def test_only_session_files_are_written_and_legacy_routes_are_retired(logging_app):
+    app, writer, _ = logging_app
+    with TestClient(app) as client:
+        assert client.post('/exq/search/clip', json=search_request(), headers={
+            'X-Exq-Request-Id': 'search-1', 'X-Exq-Event-Sequence': '0',
+        }).status_code == 200
+        assert client.post('/exq/log/clientEvent', json=[client_event()]).status_code == 202
+        for route in ['addModel', 'removeModel', 'clientEventV2']:
+            assert client.post('/exq/log/' + route, json={}).status_code == 404
+        assert client.post('/exq/log/clientEvent', json=[{'ts': 1, 'action': 'Click', 'session': 'test-session'}]).status_code == 422
+    assert len(read_events(writer)) == 2
+    assert sorted(p.name for p in writer.directory.iterdir() if p.name != '.write.lock') == ['session-test-session.jsonl']

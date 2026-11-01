@@ -24,7 +24,7 @@ backend for Exquisitor's multimedia search system. It handles:
 - **Middleware**: CORS configuration for cross-origin access.
 - **Routing**: Mounts the search, item, and admin route modules under the `/exq/` prefix.
 - **Error handling**: Global exception handler that catches `LSEException` subclasses,
-  logs them to the audit system, and returns structured HTTP error responses.
+  logs their traceback to the developer log, and returns structured HTTP error responses.
 - **Health monitoring**: `/health` endpoint that validates collection availability,
   database connectivity, and index readiness.
 
@@ -54,7 +54,7 @@ from app.core.logging_setup import setup_logging
 from app.api.routes import search, items, admin
 from app.repositories.database_repository import DatabaseRepository
 from app.services.event_log_writer import EventLogWriter
-from app.services.logging_service import AuditLogger, LoggingService
+from app.services.research_log import ResearchLog
 
 container: ApplicationContainer = container
 
@@ -87,13 +87,12 @@ async def lifespan(app: FastAPI):
         else:
             log_dir = "./logs"
 
-        audit_logger = AuditLogger(f"{log_dir}/audit.log")
         event_log_writer = EventLogWriter(f"{log_dir}/raw")
-        logging_service = LoggingService(audit_logger, event_log_writer)
-        await logging_service.start()
+        research_log = ResearchLog(event_log_writer)
+        await research_log.start()
 
         # Store in app state for dependency injection
-        app.state.logging_service = logging_service
+        app.state.research_log = research_log
         app.state.container = container
 
         logger.info("LSE application initialized successfully")
@@ -110,8 +109,8 @@ async def lifespan(app: FastAPI):
     # Shutdown
     try:
         logger.info("Shutting down LSE application...")
-        if hasattr(app.state, "logging_service"):
-            await app.state.logging_service.stop()
+        if hasattr(app.state, "research_log"):
+            await app.state.research_log.stop()
         logger.info("LSE application shutdown completed")
     except Exception:
         logger.exception("Error during shutdown")
@@ -164,18 +163,6 @@ async def lse_exception_handler(request, exc: LSEException):
     logger.opt(exception=exc).error(
         "{} on {}: {} {}", type(exc).__name__, request.url.path, exc.message, exc.details
     )
-
-    # Log to audit system if available
-    if hasattr(app.state, "logging_service"):
-        try:
-            await app.state.logging_service.log_error(
-                exc,
-                session="system",
-                context={"path": request.url.path, "method": request.method},
-            )
-        except Exception:
-            # Don't fail the request if audit logging fails
-            logger.exception("Failed to write LSE exception to the audit log")
 
     return JSONResponse(status_code=400, content={"detail": exc.message})
 

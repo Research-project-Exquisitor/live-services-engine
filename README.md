@@ -8,7 +8,7 @@ The Live Services Engine is the backend for [Exquisitor](https://exquisitor.org/
 - **Relevance feedback** -- refine results by marking positive/negative examples; an SVM learns a decision boundary over the embedding space
 - **Faceted filtering** -- recursive filter expressions (AND/OR trees with negation) over structured metadata
 - **Multi-collection support** -- each collection has its own database, indices, and media URLs, configured independently
-- **Audit logging** -- all search requests, item views, and client events are logged in MessagePack format
+- **Research logging** -- searches and semantic UI actions are written to per-session JSONL files; item fetches remain in diagnostic logs.
 - **Auto device selection** -- automatically uses CUDA, MPS, or CPU depending on availability
 
 ## Requirements
@@ -138,9 +138,7 @@ All endpoints are mounted under `/exq/`. We may introduce a semantic versioning 
 | GET | `/exq/info/filters/{session}/{collection}` | Available filter definitions |
 | GET | `/exq/info/filters/values/{session}/{collection}/{tagtypeId}/{tagsetId}` | Possible values for a specific filter |
 | GET | `/exq/info/indexes/{session}/{collection}` | Configured indexes for a collection (name, index_type, embedding_type, source_type, default) |
-| POST | `/exq/log/addModel` | Audit-log a relevance-feedback model being added |
-| POST | `/exq/log/removeModel` | Audit-log a relevance-feedback model being removed |
-| POST | `/exq/log/clientEvent` | Batch-log client UI events |
+| POST | `/exq/log/clientEvent` | Validate and queue structured client research events (202) |
 
 ### System
 
@@ -186,3 +184,25 @@ If you find this project or any of Exquisitor's subcomponents useful, please cit
 ## License
 
 GNU Affero General Public License v3.0 or later.
+### Research events
+
+Events are written to `logs/raw/session-<session_id>.jsonl` (or the first
+collection's `log_directory` plus `/raw`). The frontend sends
+`X-Exq-Request-Id` and `X-Exq-Event-Sequence` with searches. Server executions
+inherit the submission sequence; the next browser event advances it.
+Sort within a session by `(sequence, source == "server")` for causal order.
+Clients missing valid correlation headers still search, but do not produce
+server research events. Item/filter/total-count requests use developer logs only.
+
+`POST /exq/log/clientEvent` accepts the `ClientLogEvent` envelope. The legacy
+payload, `/clientEventV2`, `/addModel`, and `/removeModel` logging routes are
+retired. The server no longer creates or writes `audit.log`; historical files
+are left intact. Delivery acknowledgements mean queued, not durable; retries
+and deduplication remain phase 4 work.
+
+Regenerate the UI contract after changing the Python schema:
+
+```bash
+uv run python scripts/generate_event_types.py --output ../base-user-interface/src/types/logEvent.ts
+# Add --check in validation to detect schema drift.
+```

@@ -28,7 +28,6 @@ search_service
 item_service
     `ItemService` -- handles item metadata retrieval, related-item lookups,
     and exclusion checks by delegating to `DatabaseRepository`.
-logging_service
-    `AuditLogger` and `LoggingService` -- async, queue-based audit logging
-    with MessagePack serialization and file-lock concurrency control.
+research_log
+    `ResearchLog` -- request-bound research events written to session JSONL files.
 """
