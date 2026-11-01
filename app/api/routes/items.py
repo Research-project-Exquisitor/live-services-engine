@@ -120,9 +120,11 @@ async def get_items_base_info(
         return result
 
     except DatabaseError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        logger.exception("get_items_base_info failed")
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.exception("get_items_base_info failed")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e
 
 
 @router.post("/item/details", deprecated=True)

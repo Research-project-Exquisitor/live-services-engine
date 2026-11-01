@@ -224,9 +224,11 @@ async def temporal_search(
         return {"suggestions": chains}
 
     except SearchError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.exception("temporal_search failed")
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.exception("temporal_search failed")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e
 
 
 @router.post("/faceted")
