@@ -211,6 +211,7 @@ class SearchService:
                 collection=request.session_info.collection,
                 n=request.n,
                 filters=request.filters,
+                index_name=request.index_name,
             )
 
             _log_search_done("faceted", request.session_info.collection, suggestions, started)
