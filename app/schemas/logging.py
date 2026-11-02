@@ -38,11 +38,13 @@ SCHEMA_VERSION = 1
 EventType = Literal[
     "session_start",
     "session_end",
+    "text_input",
     "query_submission",
     "query_execution",
     "query_response_received",
     "result_state",
     "result_click",
+    "hover",
     "relevance_label",
     "display_change",
     "visibility_change",
