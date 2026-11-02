@@ -42,6 +42,8 @@ Usage::
 
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -77,20 +79,15 @@ async def lifespan(app: FastAPI):
         # Initialize the application container
         container.initialize()
 
-        # Initialize logging service
+        # Initialize logging service, one audit log file per server start
         config = container.config_manager.config
-        # Use the first collection's log directory, or default
-        if config.collections and config.collection_configs:
-            first_collection = config.collections[0]
-            log_dir = (
-                config.collection_configs[first_collection].log_directory or "./logs"
-            )
-        else:
-            log_dir = "./logs"
-
-        audit_logger = AuditLogger(f"{log_dir}/audit.log")
+        started = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        audit_logger = AuditLogger(
+            str(Path(config.log_directory) / f"audit_{started}.log")
+        )
         await audit_logger.start()
-        event_log_writer = EventLogWriter(f"{log_dir}/raw")
+        # Research events: one file per session, under raw/ in the same directory
+        event_log_writer = EventLogWriter(str(Path(config.log_directory) / "raw"))
         research_log = ResearchLog(event_log_writer)
         await research_log.start()
 
@@ -201,10 +198,10 @@ async def health_check():
                         "reason": f"Database not loaded for {collection}",
                     }
 
-            if not index_repo.get_clip_index(collection):
+            if not index_repo.get_index(collection):
                 return {
                     "status": "unhealthy",
-                    "reason": f"CLIP index not loaded for {collection}",
+                    "reason": f"Default index not loaded for {collection}",
                 }
 
         return {
