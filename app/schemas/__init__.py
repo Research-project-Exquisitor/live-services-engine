@@ -23,7 +23,7 @@ service layers, re-exported here for convenient single-import access
 Submodules
 ----------
 session
-    `SessionInfo` -- session context carried by
+    `SessionInfo`, `AddOrRemoveModelRequest` -- session context carried by
     every request.
 filters
     `ActiveFilters`, `FilterExpr`, `FilterGroup`, `FilterLeaf`, `DBFilter`,
@@ -40,10 +40,10 @@ items
     payloads.
 logging
     `LogEvent`, `EventTime` -- the research event envelope;
-    `ClientLogEvent` -- validated client intake.
+    `ClientEventRequest` -- legacy client-side event payload.
 """
 
-from .session import SessionInfo
+from .session import SessionInfo, AddOrRemoveModelRequest
 from .filters import (
     DBValueConstraint,
     DBRangeConstraint,
@@ -74,10 +74,11 @@ from .items import (
     ItemInfo,
     ClearItemSetRequest,
 )
-from .logging import ClientLogEvent, EventTime, LogEvent
+from .logging import ClientEventRequest, EventTime, LogEvent
 
 __all__ = [
     "SessionInfo",
+    "AddOrRemoveModelRequest",
     "DBValueConstraint",
     "DBRangeConstraint",
     "DBFilter",
@@ -102,7 +103,7 @@ __all__ = [
     "IsExcludedRequest",
     "ItemInfo",
     "ClearItemSetRequest",
-    "ClientLogEvent",
+    "ClientEventRequest",
     "EventTime",
     "LogEvent",
 ]

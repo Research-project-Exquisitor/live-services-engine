@@ -58,6 +58,9 @@ def logging_app(tmp_path):
         await research_log.stop()
 
     app = FastAPI(lifespan=lifespan)
+    # Legacy routes only; searches and research events must never reach it.
+    app.state.audit_logger = MagicMock()
+    app.state.audit_logger.log = AsyncMock()
     app.include_router(admin.router)
     app.include_router(search.router)
     app.dependency_overrides[get_search_service] = lambda: service
@@ -97,7 +100,7 @@ def read_events(event_log_writer):
 def test_validated_client_events_receive_server_time(logging_app):
     app, event_log_writer, _ = logging_app
     with TestClient(app) as client:
-        response = client.post("/exq/log/clientEvent", json=[client_event(request_id="search-1")],
+        response = client.post("/exq/log/clientEventV2", json=[client_event(request_id="search-1")],
                                headers={"X-Exq-Request-Id": "delivery-1"})
         assert response.status_code == 202
         assert response.json() == {"accepted": 1}
@@ -114,7 +117,7 @@ def test_validated_client_events_receive_server_time(logging_app):
 def test_invalid_batch_is_rejected_before_any_event_is_queued(logging_app, invalid):
     app, event_log_writer, _ = logging_app
     with TestClient(app) as client:
-        response = client.post("/exq/log/clientEvent", json=[client_event(), client_event(**invalid)])
+        response = client.post("/exq/log/clientEventV2", json=[client_event(), client_event(**invalid)])
         assert response.status_code == 422
     assert not event_log_writer.path_for("test-session").exists()
 
@@ -243,7 +246,7 @@ def test_intake_does_not_acknowledge_failed_queueing(logging_app, monkeypatch):
     app, event_log_writer, _ = logging_app
     monkeypatch.setattr(event_log_writer, "write", AsyncMock(side_effect=RuntimeError("queue failure")))
     with TestClient(app, raise_server_exceptions=False) as client:
-        response = client.post("/exq/log/clientEvent", json=[client_event()])
+        response = client.post("/exq/log/clientEventV2", json=[client_event()])
         assert response.status_code == 500
 
 
@@ -284,15 +287,20 @@ def test_concurrent_http_requests_keep_logging_context_isolated(logging_app):
         assert event.request_id == f"r-{suffix}"
 
 
-def test_only_session_files_are_written_and_legacy_routes_are_retired(logging_app):
+def test_legacy_routes_keep_writing_the_audit_log_and_nothing_else_does(logging_app):
     app, writer, _ = logging_app
+    legacy = {"session": "test-session", "collection": "test", "modelId": 0}
     with TestClient(app) as client:
-        assert client.post('/exq/search/clip', json=search_request(), headers={
-            'X-Exq-Request-Id': 'search-1', 'X-Exq-Event-Sequence': '0',
+        assert client.post("/exq/search/clip", json=search_request(), headers={
+            "X-Exq-Request-Id": "search-1", "X-Exq-Event-Sequence": "0",
         }).status_code == 200
-        assert client.post('/exq/log/clientEvent', json=[client_event()]).status_code == 202
-        for route in ['addModel', 'removeModel', 'clientEventV2']:
-            assert client.post('/exq/log/' + route, json={}).status_code == 404
-        assert client.post('/exq/log/clientEvent', json=[{'ts': 1, 'action': 'Click', 'session': 'test-session'}]).status_code == 422
+        assert client.post("/exq/log/clientEventV2", json=[client_event()]).status_code == 202
+        app.state.audit_logger.log.assert_not_awaited()
+        assert client.post("/exq/log/addModel", json=legacy).json() == {"status": "Logged successfully"}
+        assert client.post("/exq/log/removeModel", json=legacy).json() == {"status": "Logged successfully"}
+        assert client.post("/exq/log/clientEvent", json=[
+            {"ts": 1, "action": "Click", "session": "test-session"},
+        ]).json() == {"status": "Logged successfully"}
+    actions = [call.kwargs["action"] for call in app.state.audit_logger.log.await_args_list]
+    assert actions == ["Log Add Model", "Log Remove Model", "Client Event: Click"]
     assert len(read_events(writer)) == 2
-    assert sorted(p.name for p in writer.directory.iterdir() if p.name != '.write.lock') == ['session-test-session.jsonl']

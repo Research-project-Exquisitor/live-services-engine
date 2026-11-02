@@ -13,14 +13,16 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-
-
 """Research events; diagnostic output uses Loguru separately."""
+
 import time
 from typing import Any, Dict
+
 from loguru import logger
+
 from ..schemas.logging import ClientLogEvent, EventTarget, EventType, LogEvent
 from .event_log_writer import EventLogWriter
+
 
 class SearchTimer:
     """Times a search from the route, so `SearchService` needs no logging code."""
@@ -65,7 +67,8 @@ class ResearchLog:
     ) -> None:
         """Build and queue a server event using this request's causal context.
 
-        Clients without a sequence cannot establish causal order; skip their events. Research logging failures remain diagnostic and
+        Clients without a sequence cannot establish causal order, so their
+        events are skipped. Research logging failures remain diagnostic and
         must not replace a successful response or the original application error.
         """
         if self.event_log_writer is None or self._sequence is None or not self._request_id:
@@ -124,7 +127,6 @@ class ResearchLog:
             "error_type": type(error).__name__,
             "context": {"request": request_data},
         })
-
 
     async def start(self):
         await self.event_log_writer.start()

@@ -42,3 +42,22 @@ class SessionInfo(BaseModel):
 
     modelId: int
     """Identifier for the model associated with this session."""
+
+
+class AddOrRemoveModelRequest(BaseModel):
+    """Request model for adding or removing a model from a session.
+
+    Attributes:
+        session: Unique identifier for the search session
+        collection: Name of the data collection to operate on
+        modelId: Unique identifier for the model being managed
+    """
+
+    session: str
+    """Unique identifier for the search session."""
+
+    collection: str
+    """Name of the data collection to operate on."""
+
+    modelId: int
+    """Unique identifier for the model being managed."""

@@ -65,7 +65,6 @@ async def get_item_base_info(
     try:
         result = item_service.get_item_info(request)
 
-
         return result
 
     except DatabaseError as e:
@@ -89,7 +88,6 @@ async def get_items_base_info(
     """
     try:
         result = item_service.get_items_info(request)
-
 
         return result
 
@@ -115,7 +113,6 @@ async def get_item_detailed_info(
     try:
         result = item_service.get_item_detailed_info(request)
 
-
         return result
 
     except DatabaseError as e:
@@ -137,8 +134,6 @@ async def get_related_items(
             request, sort_by=request.sortBy, sort_order=request.sortOrder
         )
 
-
-
         return result
 
     except DatabaseError as e:
@@ -157,8 +152,6 @@ async def is_item_excluded(
     """Check if item is in an excluded group."""
     try:
         result = item_service.is_item_excluded(request)
-
-
 
         return result
 

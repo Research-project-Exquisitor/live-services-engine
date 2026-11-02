@@ -17,7 +17,7 @@
 """Administrative, informational, and client-event logging routes.
 
 Defines endpoints under ``/exq/`` for session management, collection
-metadata queries, and research logging of client-side events:
+metadata queries, and audit logging of client-side events:
 
 - ``GET  /init/{session}`` -- initialise a session; returns available collections.
 - ``POST /info/totalItems`` -- total item count for a collection.
@@ -26,24 +26,30 @@ metadata queries, and research logging of client-side events:
   -- possible values for a specific filter.
 - ``GET  /info/indexes/{session}/{collection}`` -- the collection's configured
   indexes, so a client can discover index names instead of hardcoding them.
-- ``POST /log/clientEvent`` -- validate and queue structured research events.
+- ``POST /log/addModel`` / ``POST /log/removeModel`` -- audit model lifecycle.
+- ``POST /log/clientEvent`` -- batch-log arbitrary client-side UI events.
+- ``POST /log/clientEventV2`` -- validate and queue structured research events.
 """
 
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from loguru import logger
 
 from app.repositories.database_repository import DatabaseRepository
 
 from ...schemas import (
+    ClientEventRequest,
     SessionInfo,
+    AddOrRemoveModelRequest,
 )
+from ...services.logging_service import AuditLogger
 from ...services.research_log import ResearchLog
 from ...schemas.logging import ClientLogEvent
 from ..dependencies import (
     get_database_repository,
     get_config_manager,
+    get_audit_logger,
     get_research_log,
 )
 
@@ -59,7 +65,6 @@ async def init_session(
     try:
         config = config_manager.config
         collections = config.collections
-
 
         return {"session": session, "collections": collections}
 
@@ -78,7 +83,6 @@ async def get_total_items(
     """Get total number of items in a collection."""
     try:
         total_items = database_repo.get_total_items(request.collection)
-
 
         return {"total_items": total_items}
 
@@ -99,7 +103,6 @@ async def get_filters(
     try:
         filters = database_repo.get_filters(collection) or []
 
-
         return filters
     except Exception as e:
         logger.exception("get_filters failed")
@@ -119,7 +122,6 @@ async def get_filter_values(
     """Get possible values for a specific filter in a collection."""
     try:
         filter_values = database_repo.get_filter_values(collection, tagsetId, tagtypeId)
-
 
         return filter_values
 
@@ -163,7 +165,49 @@ async def get_indexes(
     ]
 
 
-@router.post("/log/clientEvent", status_code=202)
+@router.post("/log/addModel")
+async def log_add_model(
+    request: AddOrRemoveModelRequest,
+    background_tasks: BackgroundTasks,
+    audit_logger: AuditLogger = Depends(get_audit_logger),
+) -> Dict[str, str]:
+    """Log model addition."""
+    background_tasks.add_task(
+        audit_logger.log,
+        action="Log Add Model",
+        session=request.session,
+        data={
+            "session": request.session,
+            "modelId": request.modelId,
+            "collection": request.collection,
+            "body": request.model_dump_json(),
+        },
+    )
+    return {"status": "Logged successfully"}
+
+
+@router.post("/log/removeModel")
+async def log_remove_model(
+    request: AddOrRemoveModelRequest,
+    background_tasks: BackgroundTasks,
+    audit_logger: AuditLogger = Depends(get_audit_logger),
+) -> Dict[str, str]:
+    """Log model removal."""
+    background_tasks.add_task(
+        audit_logger.log,
+        action="Log Remove Model",
+        session=request.session,
+        data={
+            "session": request.session,
+            "modelId": request.modelId,
+            "collection": request.collection,
+            "body": request.model_dump_json(),
+        },
+    )
+    return {"status": "Logged successfully"}
+
+
+@router.post("/log/clientEventV2", status_code=202)
 async def log_events(
     events: list[ClientLogEvent],
     research_log: ResearchLog = Depends(get_research_log),
@@ -174,3 +218,25 @@ async def log_events(
     are Phase 4 work; this endpoint does not promise deduplication yet.
     """
     return {"accepted": await research_log.log_client_events(events)}
+
+
+@router.post("/log/clientEvent")
+async def log_client_event(
+    request: List[ClientEventRequest],
+    background_tasks: BackgroundTasks,
+    audit_logger: AuditLogger = Depends(get_audit_logger),
+) -> Dict[str, str]:
+    """Log a generic client event."""
+    # Kept for UIs that don't send research events; /log/clientEventV2 is the new format.
+    for event in request:
+        background_tasks.add_task(
+            audit_logger.log,
+            action=f"Client Event: {event.action}",
+            session=event.session,
+            data={
+                "element_id": event.element_id,
+                "route": event.route,
+                "body": event.data,
+            },
+        )
+    return {"status": "Logged successfully"}

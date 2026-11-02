@@ -42,6 +42,7 @@ from app.repositories.index_repository import IndexRepository
 from ..core.models import ApplicationContainer, CLIPModelManager, TextModelManager, container
 from ..services.search_service import SearchService
 from ..services.item_service import ItemService
+from ..services.logging_service import AuditLogger
 from ..services.research_log import ResearchLog
 
 
@@ -103,6 +104,11 @@ def get_item_service(
 ) -> ItemService:
     """Get the item service."""
     return ItemService(database_repo, config_manager)
+
+
+def get_audit_logger(request: Request) -> AuditLogger:
+    """The legacy audit log, written only by the old logging routes."""
+    return request.app.state.audit_logger
 
 
 def get_research_log(

@@ -54,6 +54,7 @@ from app.core.logging_setup import setup_logging
 from app.api.routes import search, items, admin
 from app.repositories.database_repository import DatabaseRepository
 from app.services.event_log_writer import EventLogWriter
+from app.services.logging_service import AuditLogger
 from app.services.research_log import ResearchLog
 
 container: ApplicationContainer = container
@@ -87,11 +88,14 @@ async def lifespan(app: FastAPI):
         else:
             log_dir = "./logs"
 
+        audit_logger = AuditLogger(f"{log_dir}/audit.log")
+        await audit_logger.start()
         event_log_writer = EventLogWriter(f"{log_dir}/raw")
         research_log = ResearchLog(event_log_writer)
         await research_log.start()
 
         # Store in app state for dependency injection
+        app.state.audit_logger = audit_logger
         app.state.research_log = research_log
         app.state.container = container
 
@@ -109,8 +113,12 @@ async def lifespan(app: FastAPI):
     # Shutdown
     try:
         logger.info("Shutting down LSE application...")
-        if hasattr(app.state, "research_log"):
-            await app.state.research_log.stop()
+        try:
+            if hasattr(app.state, "audit_logger"):
+                await app.state.audit_logger.stop()
+        finally:
+            if hasattr(app.state, "research_log"):
+                await app.state.research_log.stop()
         logger.info("LSE application shutdown completed")
     except Exception:
         logger.exception("Error during shutdown")
