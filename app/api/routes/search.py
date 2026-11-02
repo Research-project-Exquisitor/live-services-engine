@@ -29,14 +29,14 @@ Defines five POST endpoints under ``/exq/search/``:
 - ``/faceted`` -- filter-only search with no vector similarity.
 
 Each endpoint validates the incoming Pydantic request, delegates to
-`SearchService`, schedules a background audit-log task, and returns a
+`SearchService`, records a research event before responding, and returns a
 ``{"suggestions": [...]}`` response containing the matching media IDs,
 or for ``/temporal`` the ranked `TemporalChain` objects.
 """
 
 from typing import Any, Dict
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 
 from ...schemas import (
@@ -46,9 +46,9 @@ from ...schemas import (
     TemporalSearchRequest,
 )
 from ...services.search_service import SearchService
-from ...services.logging_service import LoggingService, SearchTimer
+from ...services.research_log import ResearchLog, SearchTimer
 from ...core.exceptions import SearchError
-from ..dependencies import get_search_service, get_logging_service
+from ..dependencies import get_search_service, get_research_log
 
 router = APIRouter(prefix="/exq/search", tags=["search"])
 
@@ -56,36 +56,15 @@ router = APIRouter(prefix="/exq/search", tags=["search"])
 @router.post("/clip")
 async def clip_search(
     request: TextSearchRequest,
-    background_tasks: BackgroundTasks,
     search_service: SearchService = Depends(get_search_service),
-    logging_service: LoggingService = Depends(get_logging_service),
+    research_log: ResearchLog = Depends(get_research_log),
 ) -> Dict[str, Any]:
     """Search using CLIP text embeddings."""
     timer = SearchTimer()
     try:
         result = await search_service.search_text("clip", request)
 
-        background_tasks.add_task(
-            logging_service.log_search_request,
-            "CLIP Search",
-            request.session_info.session,
-            request.session_info.modelId,
-            request.session_info.collection,
-            {
-                "query": request.text,
-                "index_name": request.index_name,
-                "n_seen": len(request.seen or []),
-                "filters": request.filters.model_dump_json()
-                if request.filters
-                else None,
-                "excluded": request.excluded or [],
-                "n_requested": request.n,
-            },
-            result["suggestions"],
-            result["request_timestamp"],
-            result["completion_time"],
-        )
-        await logging_service.log_query_execution(
+        await research_log.log_query_execution(
             request.session_info.session, request.model_dump(mode="json"), result, result["suggestions"], timer,
         )
 
@@ -93,13 +72,13 @@ async def clip_search(
 
     except SearchError as e:
         logger.exception("clip_search failed")
-        await logging_service.log_search_error(
+        await research_log.log_search_error(
             request.session_info.session, request.model_dump(mode="json"), e,
         )
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.exception("clip_search failed")
-        await logging_service.log_search_error(
+        await research_log.log_search_error(
             request.session_info.session, request.model_dump(mode="json"), e,
         )
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e
@@ -108,36 +87,15 @@ async def clip_search(
 @router.post("/text")
 async def text_search(
     request: TextSearchRequest,
-    background_tasks: BackgroundTasks,
     search_service: SearchService = Depends(get_search_service),
-    logging_service: LoggingService = Depends(get_logging_service),
+    research_log: ResearchLog = Depends(get_research_log),
 ) -> Dict[str, Any]:
     """Search using sentence-transformers text embeddings."""
     timer = SearchTimer()
     try:
         result = await search_service.search_text("text", request)
 
-        background_tasks.add_task(
-            logging_service.log_search_request,
-            "Text Search",
-            request.session_info.session,
-            request.session_info.modelId,
-            request.session_info.collection,
-            {
-                "query": request.text,
-                "index_name": request.index_name,
-                "n_seen": len(request.seen or []),
-                "filters": request.filters.model_dump_json()
-                if request.filters
-                else None,
-                "excluded": request.excluded or [],
-                "n_requested": request.n,
-            },
-            result["suggestions"],
-            result["request_timestamp"],
-            result["completion_time"],
-        )
-        await logging_service.log_query_execution(
+        await research_log.log_query_execution(
             request.session_info.session, request.model_dump(mode="json"), result, result["suggestions"], timer,
         )
 
@@ -145,13 +103,13 @@ async def text_search(
 
     except SearchError as e:
         logger.exception("text_search failed")
-        await logging_service.log_search_error(
+        await research_log.log_search_error(
             request.session_info.session, request.model_dump(mode="json"), e,
         )
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.exception("text_search failed")
-        await logging_service.log_search_error(
+        await research_log.log_search_error(
             request.session_info.session, request.model_dump(mode="json"), e,
         )
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e
@@ -160,38 +118,15 @@ async def text_search(
 @router.post("/rf")
 async def rf_search(
     request: RFSearchRequest,
-    background_tasks: BackgroundTasks,
     search_service: SearchService = Depends(get_search_service),
-    logging_service: LoggingService = Depends(get_logging_service),
+    research_log: ResearchLog = Depends(get_research_log),
 ) -> Dict[str, Any]:
     """Search using relevance feedback (SVM)."""
     timer = SearchTimer()
     try:
         result = await search_service.search_rf(request)
 
-        background_tasks.add_task(
-            logging_service.log_search_request,
-            "RF Search",
-            request.session_info.session,
-            request.session_info.modelId,
-            request.session_info.collection,
-            {
-                "pos": request.pos,
-                "neg": request.neg,
-                "index_name": request.index_name,
-                "n_seen": len(request.seen),
-                "filters": request.filters.model_dump_json()
-                if request.filters
-                else None,
-                "excluded": request.excluded,
-                "query": request.query,
-                "n_requested": request.n,
-            },
-            result["suggestions"],
-            result["request_timestamp"],
-            result["completion_time"],
-        )
-        await logging_service.log_query_execution(
+        await research_log.log_query_execution(
             request.session_info.session, request.model_dump(mode="json"), result, result["suggestions"], timer,
         )
 
@@ -199,13 +134,13 @@ async def rf_search(
 
     except SearchError as e:
         logger.exception("rf_search failed")
-        await logging_service.log_search_error(
+        await research_log.log_search_error(
             request.session_info.session, request.model_dump(mode="json"), e,
         )
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.exception("rf_search failed")
-        await logging_service.log_search_error(
+        await research_log.log_search_error(
             request.session_info.session, request.model_dump(mode="json"), e,
         )
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e
@@ -214,9 +149,8 @@ async def rf_search(
 @router.post("/temporal")
 async def temporal_search(
     request: TemporalSearchRequest,
-    background_tasks: BackgroundTasks,
     search_service: SearchService = Depends(get_search_service),
-    logging_service: LoggingService = Depends(get_logging_service),
+    research_log: ResearchLog = Depends(get_research_log),
 ) -> Dict[str, Any]:
     """Search for chains of segments matching an ordered sequence of queries."""
     timer = SearchTimer()
@@ -225,30 +159,7 @@ async def temporal_search(
         # Using model_dump() to convert TemporalChain into a plain dict for audit logger
         chains = [chain.model_dump() for chain in result["suggestions"]]
 
-        background_tasks.add_task(
-            logging_service.log_search_request,
-            "Temporal Search",
-            request.session_info.session,
-            request.session_info.modelId,
-            request.session_info.collection,
-            {
-                "hops": [hop.model_dump(mode="json") for hop in request.hops],
-                "n_seen": len(request.seen),
-                "filters": request.filters.model_dump_json()
-                if request.filters
-                else None,
-                "excluded": request.excluded,
-                "top_r": request.top_r,
-                "rrf_k": request.rrf_k,
-                "chains_per_video": request.chains_per_video,
-                "iou_threshold": request.iou_threshold,
-                "n_requested": request.n,
-            },
-            chains,
-            result["request_timestamp"],
-            result["completion_time"],
-        )
-        await logging_service.log_query_execution(
+        await research_log.log_query_execution(
             request.session_info.session, request.model_dump(mode="json"), result, chains, timer,
         )
 
@@ -256,13 +167,13 @@ async def temporal_search(
 
     except SearchError as e:
         logger.exception("temporal_search failed")
-        await logging_service.log_search_error(
+        await research_log.log_search_error(
             request.session_info.session, request.model_dump(mode="json"), e,
         )
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.exception("temporal_search failed")
-        await logging_service.log_search_error(
+        await research_log.log_search_error(
             request.session_info.session, request.model_dump(mode="json"), e,
         )
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e
@@ -271,30 +182,15 @@ async def temporal_search(
 @router.post("/faceted")
 async def faceted_search(
     request: FacetedSearchRequest,
-    background_tasks: BackgroundTasks,
     search_service: SearchService = Depends(get_search_service),
-    logging_service: LoggingService = Depends(get_logging_service),
+    research_log: ResearchLog = Depends(get_research_log),
 ) -> Dict[str, Any]:
     """Search using filters only"""
     timer = SearchTimer()
     try:
         result = await search_service.search_faceted(request)
 
-        background_tasks.add_task(
-            logging_service.log_search_request,
-            "Faceted Search",
-            request.session_info.session,
-            request.session_info.modelId,
-            request.session_info.collection,
-            {
-                "filters": request.filters.model_dump_json(),
-                "n_requested": request.n,
-            },
-            result["suggestions"],
-            result["request_timestamp"],
-            result["completion_time"],
-        )
-        await logging_service.log_query_execution(
+        await research_log.log_query_execution(
             request.session_info.session, request.model_dump(mode="json"), result, result["suggestions"], timer,
         )
 
@@ -302,13 +198,13 @@ async def faceted_search(
 
     except SearchError as e:
         logger.exception("faceted_search failed")
-        await logging_service.log_search_error(
+        await research_log.log_search_error(
             request.session_info.session, request.model_dump(mode="json"), e,
         )
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.exception("faceted_search failed")
-        await logging_service.log_search_error(
+        await research_log.log_search_error(
             request.session_info.session, request.model_dump(mode="json"), e,
         )
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") from e

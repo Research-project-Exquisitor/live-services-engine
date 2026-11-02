@@ -14,40 +14,29 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-"""Centralized logging service for audit trails and system logs.
+"""Legacy audit log for clients that still use the old logging routes.
 
-This module contains the logging facade and the legacy audit writer. During
-Phase 3, migrated operations also use the structured research event writer:
+`AuditLogger` is a low-level async writer. Log entries are pushed onto an
+`asyncio.Queue` and consumed by a background worker task that serializes each
+entry as MessagePack and appends it to a log file under a `FileLock` for safe
+concurrent access. A synchronous ``log_sync`` method is also available for
+non-async contexts.
 
-`AuditLogger`
-    Low-level async writer.  Log entries are pushed onto an `asyncio.Queue`
-    and consumed by a background worker task that serializes each entry as
-    MessagePack and appends it to a log file under a `FileLock` for safe
-    concurrent access.  A synchronous ``log_sync`` method is also available
-    for non-async contexts.
-
-`LoggingService`
-    Facade consumed by route handlers and services. Migrated operations build
-    `LogEvent` envelopes and queue them through `EventLogWriter`. Legacy operations
-    continue using `AuditLogger` during Phase 3. Request-bound instances share
-    the writers without sharing request context.
+Only ``/log/addModel``, ``/log/removeModel`` and ``/log/clientEvent`` write
+here, so UIs that don't send research events keep working as before. Research
+events go to `app.services.research_log.ResearchLog`.
 """
 
 import asyncio
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Optional
 
 import msgpack
 from filelock import FileLock
 from loguru import logger
 
-from ..schemas.logging import ClientLogEvent, EventTarget, EventType, LogEvent
-from .event_log_writer import EventLogWriter
 
-
-# Old research writer. Phase 3 replaces it with `EventLogWriter` (event_log_writer.py)
-# and removes this class, msgpack and logs/audit.log.
 class AuditLogger:
     """Handles audit logging with structured format and async processing."""
 
@@ -146,272 +135,3 @@ class AuditLogger:
 
         self._write_log_sync(log_entry)
 
-
-class SearchTimer:
-    """Times a search from the route, so `SearchService` needs no logging code."""
-
-    def __init__(self):
-        self._started_ms = time.time_ns() // 1_000_000
-        self._started = time.perf_counter()
-
-    def timing(self) -> Dict[str, Any]:
-        return {
-            "started_ms": self._started_ms,
-            "completed_ms": time.time_ns() // 1_000_000,
-            "duration_ms": (time.perf_counter() - self._started) * 1000,
-        }
-
-
-# Stays in Phase 3, but its methods will build `LogEvent`s and write them to
-# `EventLogWriter` instead of free-text entries to `AuditLogger`.
-class LoggingService:
-    """Research events and the legacy audit log; developer logging is Loguru's `logger`."""
-
-    def __init__(
-        self,
-        audit_logger: AuditLogger,
-        event_log_writer: EventLogWriter | None = None,
-        *,
-        request_id: str | None = None,
-        sequence: int | None = None,
-    ):
-        self.audit_logger: AuditLogger = audit_logger
-        """Low-level audit logger that serializes entries to disk."""
-        self.event_log_writer = event_log_writer
-        self._request_id = request_id
-        self._sequence = sequence
-
-    def for_request(self, request_id: str | None, sequence: int | None) -> "LoggingService":
-        """Bind context to a new facade, never to the shared application instance."""
-        return LoggingService(
-            self.audit_logger, self.event_log_writer, request_id=request_id, sequence=sequence
-        )
-
-    async def log_event(
-        self,
-        event_type: EventType,
-        target: EventTarget,
-        session: str,
-        data: Dict[str, Any],
-    ) -> None:
-        """Build and queue a server event using this request's causal context.
-
-        Old clients have no sequence; leave them on legacy logging rather than
-        inventing event order. Research logging failures remain diagnostic and
-        must not replace a successful response or the original application error.
-        """
-        if self.event_log_writer is None or self._sequence is None or not self._request_id:
-            return
-        try:
-            event = LogEvent(
-                source="server", session_id=session, sequence=self._sequence,
-                type=event_type, target=target, time={},
-                request_id=self._request_id, data=data,
-            )
-            await self.event_log_writer.write(event)
-        except Exception:
-            logger.exception("Failed to queue research event {} for session {}", event_type, session)
-
-    async def log_client_events(self, events: list[ClientLogEvent]) -> int:
-        """Queue validated UI events, preserving their original IDs and context.
-
-        Intake errors propagate, so the endpoint never reports acceptance for
-        an event it failed to queue. Acceptance still does not imply disk durability.
-        """
-        if self.event_log_writer is None:
-            raise RuntimeError("Research event writer is not configured")
-        for event in events:
-            await self.event_log_writer.write(event)
-        return len(events)
-
-
-    async def log_session_init(self, session: str, collections: list):
-        """Log session initialization."""
-        await self.audit_logger.log(
-            action="Initialize Exquisitor LSE Session",
-            session=session,
-            data={"session": session, "collections": collections},
-        )
-
-    async def log_total_items_request(
-        self, session: str, collection: str, total_items: int
-    ):
-        """Log total items request."""
-        await self.audit_logger.log(
-            action="Get Total Items",
-            session=session,
-            data={
-                "collection": collection,
-                "total_items": total_items,
-            },
-        )
-
-    async def log_query_execution(
-        self,
-        session: str,
-        request_data: Dict[str, Any],
-        execution: Dict[str, Any],
-        suggestions: list,
-        timer: "SearchTimer",
-    ) -> None:
-        """Record a finished search as a ``query_execution`` research event.
-
-        Awaited before the response, so ``time.server`` stays before the client's
-        response event. The whole-second fields in `execution` belong to the
-        old audit log only.
-        """
-        await self.log_event("query_execution", "search", session, {
-            **{key: value for key, value in execution.items()
-               if key not in {"request_timestamp", "completion_time", "suggestions"}},
-            **timer.timing(),
-            "request": request_data,
-            "suggestions": suggestions,
-        })
-
-    async def log_search_error(
-        self, session: str, request_data: Dict[str, Any], error: Exception,
-    ) -> None:
-        """Record a failed search as an ``error`` research event.
-
-        The route already logs the traceback to the developer log.
-        """
-        await self.log_event("error", "search", session, {
-            "message": str(error),
-            "error_type": type(error).__name__,
-            "context": {"request": request_data},
-        })
-
-    async def log_search_request(
-        self,
-        action: str,
-        session: str,
-        model_id: int,
-        collection: str,
-        query_data: Dict[str, Any],
-        suggestions: list,
-        request_timestamp: int,
-        completion_time: int,
-    ):
-        """Write a search to the legacy audit log."""
-        await self.audit_logger.log(
-            action=action,
-            session=session,
-            data={
-                "session": session,
-                "modelId": model_id,
-                "collection": collection,
-                "suggestions": suggestions,
-                **query_data,
-            },
-            request_timestamp=request_timestamp,
-            completion_time=completion_time,
-        )
-
-    async def log_model_operation(
-        self, action: str, session: str, model_id: int, collection: str, body_json: str
-    ):
-        """Log model add/remove operations."""
-        await self.audit_logger.log(
-            action=action,
-            session=session,
-            data={
-                "session": session,
-                "modelId": model_id,
-                "collection": collection,
-                "body": body_json,
-            },
-        )
-
-    async def log_filter_operation(
-        self,
-        action: str,
-        session: str,
-        model_id: int,
-        collection: str,
-        filter_data: Dict[str, Any],
-    ):
-        """Log filter operations."""
-        await self.audit_logger.log(
-            action=action,
-            session=session,
-            data={
-                "session": session,
-                "modelId": model_id,
-                "collection": collection,
-                **filter_data,
-            },
-        )
-
-    async def log_item_request(
-        self,
-        action: str,
-        session: str,
-        model_id: int,
-        collection: str,
-        item_id: Union[int, List[int]],
-        item_name: Union[str, List[str]],
-        additional_data: Optional[Dict[str, Any]] = None,
-    ):
-        """Log item-related requests.
-
-        A batch request passes lists of IDs and names instead of single values.
-        """
-        data = {
-            "session": session,
-            "modelId": model_id,
-            "collection": collection,
-            "item": item_id,
-            "mediaName": item_name,
-        }
-        if additional_data:
-            data.update(additional_data)
-
-        await self.audit_logger.log(action=action, session=session, data=data)
-
-    async def log_error(
-        self, error: Exception, session: str, context: Dict[str, Any],
-        *, target: EventTarget = "session",
-    ):
-        """Record an error in event/audit logs and diagnostics with its traceback."""
-        await self.log_event("error", target, session, {
-            "message": str(error),
-            "error_type": type(error).__name__,
-            "context": context,
-        })
-        try:
-            await self.audit_logger.log(
-                action="Error",
-                session=session,
-                data={
-                    "error_type": type(error).__name__,
-                    "error_message": str(error),
-                    "error_details": getattr(error, "details", {}),
-                    "context": context,
-                },
-            )
-        except Exception:
-            logger.exception("Failed to queue error in legacy audit log")
-
-        # Also log to the diagnostic log
-        logger.opt(exception=error).error(
-            "{}: {} (session={}, context={}, details={})",
-            type(error).__name__,
-            error,
-            session,
-            context,
-            getattr(error, "details", {}),
-        )
-
-    async def start(self):
-        """Start the logging service."""
-        await self.audit_logger.start()
-        if self.event_log_writer is not None:
-            await self.event_log_writer.start()
-
-    async def stop(self):
-        """Stop the logging service."""
-        try:
-            await self.audit_logger.stop()
-        finally:
-            if self.event_log_writer is not None:
-                await self.event_log_writer.stop()

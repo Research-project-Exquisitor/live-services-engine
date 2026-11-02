@@ -29,8 +29,7 @@ requests to the correct one:
   text or RF queries matched as chains of segments within a video.
 
 Each search call is timed (wall-clock seconds) and the result dict includes
-``request_timestamp``, ``completion_time``, and ``strategy`` metadata used
-by the route layer for audit logging.
+``strategy`` metadata used by the route layer for research logging.
 """
 
 import time
@@ -128,9 +127,6 @@ class SearchService:
         if not isinstance(strategy, TextSearchStrategyABC):
             raise SearchError(f"Strategy {strategy_name} does not support text search")
 
-        # Old audit-log timing in whole seconds. Phase 3 replaces start_time and
-        # completion_time with one millisecond duration used by both logs.
-        start_time = int(time.time())
         started = time.perf_counter()
         logger.debug("{} search started in {}", strategy_name, request.session_info.collection)
 
@@ -145,13 +141,10 @@ class SearchService:
                 index_name=request.index_name,
             )
 
-            completion_time = int(time.time()) - start_time
             _log_search_done(strategy_name, request.session_info.collection, suggestions, started)
 
             return {
                 "suggestions": suggestions,
-                "request_timestamp": start_time,
-                "completion_time": completion_time,
                 "strategy": strategy_name,
             }
 
@@ -171,9 +164,6 @@ class SearchService:
         if not isinstance(strategy, RFSearchStrategyABC):
             raise SearchError("RF strategy not properly configured")
 
-        # Old audit-log timing in whole seconds. Phase 3 replaces start_time and
-        # completion_time with one millisecond duration used by both logs.
-        start_time = int(time.time())
         started = time.perf_counter()
         logger.debug("rf search started in {}", request.session_info.collection)
 
@@ -190,13 +180,10 @@ class SearchService:
                 index_name=request.index_name,
             )
 
-            completion_time = int(time.time()) - start_time
             _log_search_done("rf", request.session_info.collection, suggestions, started)
 
             return {
                 "suggestions": suggestions,
-                "request_timestamp": start_time,
-                "completion_time": completion_time,
                 "strategy": "rf",
             }
 
@@ -216,9 +203,6 @@ class SearchService:
         if not isinstance(strategy, FacetedSearchStrategyABC):
             raise SearchError("Faceted strategy not properly configured")
 
-        # Old audit-log timing in whole seconds. Phase 3 replaces start_time and
-        # completion_time with one millisecond duration used by both logs.
-        start_time = int(time.time())
         started = time.perf_counter()
         logger.debug("faceted search started in {}", request.session_info.collection)
 
@@ -229,13 +213,10 @@ class SearchService:
                 filters=request.filters,
             )
 
-            completion_time = int(time.time()) - start_time
             _log_search_done("faceted", request.session_info.collection, suggestions, started)
 
             return {
                 "suggestions": suggestions,
-                "request_timestamp": start_time,
-                "completion_time": completion_time,
                 "strategy": "faceted",
             }
         except Exception as e:
@@ -253,9 +234,6 @@ class SearchService:
         if not isinstance(strategy, TemporalSearchStrategyABC):
             raise SearchError("Temporal strategy not properly configured")
 
-        # Old audit-log timing in whole seconds. Phase 3 replaces start_time and
-        # completion_time with one millisecond duration used by both logs.
-        start_time = int(time.time())
         started = time.perf_counter()
         logger.debug("temporal search started in {}", request.session_info.collection)
 
@@ -273,14 +251,11 @@ class SearchService:
                 iou_threshold=request.iou_threshold,
             )
 
-            completion_time = int(time.time()) - start_time
 
             _log_search_done("temporal", request.session_info.collection, chains, started)
 
             return {
                 "suggestions": chains,
-                "request_timestamp": start_time,
-                "completion_time": completion_time,
                 "strategy": "temporal",
             }
 

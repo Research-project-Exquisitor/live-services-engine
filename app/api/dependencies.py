@@ -42,7 +42,8 @@ from app.repositories.index_repository import IndexRepository
 from ..core.models import ApplicationContainer, CLIPModelManager, TextModelManager, container
 from ..services.search_service import SearchService
 from ..services.item_service import ItemService
-from ..services.logging_service import LoggingService
+from ..services.logging_service import AuditLogger
+from ..services.research_log import ResearchLog
 
 
 def get_container() -> ApplicationContainer:
@@ -105,11 +106,16 @@ def get_item_service(
     return ItemService(database_repo, config_manager)
 
 
-def get_logging_service(
+def get_audit_logger(request: Request) -> AuditLogger:
+    """The legacy audit log, written only by the old logging routes."""
+    return request.app.state.audit_logger
+
+
+def get_research_log(
     request: Request,
     request_id: str | None = Header(default=None, alias="X-Exq-Request-Id"),
     sequence: str | None = Header(default=None, alias="X-Exq-Event-Sequence"),
-) -> LoggingService:
+) -> ResearchLog:
     """Resolve logging context once per request, with application-owned writers.
 
     Invalid logging headers only disable the research event; they never reject
@@ -117,5 +123,5 @@ def get_logging_service(
     """
     if request_id is not None and not 1 <= len(request_id) <= 64:
         request_id = None
-    parsed_sequence = int(sequence) if sequence is not None and sequence.isdigit() else None
-    return request.app.state.logging_service.for_request(request_id, parsed_sequence)
+    parsed_sequence = int(sequence) if sequence is not None and sequence.isascii() and sequence.isdigit() and len(sequence) <= 16 else None
+    return request.app.state.research_log.for_request(request_id, parsed_sequence)
