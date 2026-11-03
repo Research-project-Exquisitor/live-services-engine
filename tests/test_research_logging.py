@@ -97,6 +97,32 @@ def read_events(event_log_writer):
             for line in event_log_writer.path_for("test-session").read_text().splitlines()]
 
 
+def test_hover_events_keep_their_raw_start_and_end(logging_app):
+    app, event_log_writer, _ = logging_app
+    hover = client_event(type="hover", target="result", request_id="search-1", data={
+        "item_id": 731, "start_ms": 1_793_181_600_000, "end_ms": 1_793_181_600_040,
+    })
+    with TestClient(app) as client:
+        assert client.post("/exq/log/clientEventV2", json=[hover]).status_code == 202
+    [event] = read_events(event_log_writer)
+    assert event.type == "hover" and event.request_id == "search-1"
+    # A 40 ms hover is kept: no minimum duration in the browser (R21).
+    assert event.data["end_ms"] - event.data["start_ms"] == 40
+
+
+def test_text_input_keeps_every_change_with_the_full_text(logging_app):
+    app, event_log_writer, _ = logging_app
+    edits = [client_event(type="text_input", sequence=i, data={
+        "surface": "search_bar", "text": text, "input_type": kind,
+    }) for i, (text, kind) in enumerate([("d", "insertText"), ("", "deleteContentBackward"), ("dog", "insertFromPaste")])]
+    with TestClient(app) as client:
+        assert client.post("/exq/log/clientEventV2", json=edits).status_code == 202
+    events = read_events(event_log_writer)
+    assert [(e.data["text"], e.data["input_type"]) for e in events] == [
+        ("d", "insertText"), ("", "deleteContentBackward"), ("dog", "insertFromPaste"),
+    ]
+
+
 def test_validated_client_events_receive_server_time(logging_app):
     app, event_log_writer, _ = logging_app
     with TestClient(app) as client:
