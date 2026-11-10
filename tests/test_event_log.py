@@ -19,6 +19,7 @@
 import asyncio
 import json
 import logging
+import time
 
 import pytest
 from loguru import logger
@@ -119,6 +120,35 @@ class TestEventLogWriter:
         assert written["time"]["client"] == 1_727_681_234_567
         assert written["time"]["server"] > written["time"]["client"]
         LogEvent(**written)  # what we write can be read back
+
+    def test_slow_writes_do_not_block_the_event_loop(self, tmp_path, monkeypatch):
+        """A slow disk delays the file, not the requests served meanwhile."""
+        event_log_writer = EventLogWriter(str(tmp_path))
+        append = event_log_writer._append
+
+        def slow_append(event):
+            time.sleep(0.2)
+            append(event)
+
+        monkeypatch.setattr(event_log_writer, "_append", slow_append)
+
+        async def run():
+            await event_log_writer.start()
+            for sequence in range(3):
+                await event_log_writer.write(LogEvent(**client_event(sequence=sequence)))
+            ticks = 0
+            started = time.monotonic()
+            while time.monotonic() - started < 0.3:
+                await asyncio.sleep(0.01)  # stands in for a request served meanwhile
+                ticks += 1
+            await event_log_writer.stop()
+            return ticks
+
+        ticks = asyncio.run(run())
+
+        assert ticks > 10, "the event loop was blocked while writing"
+        lines = event_log_writer.path_for("s-1").read_text().splitlines()
+        assert [json.loads(line)["sequence"] for line in lines] == [0, 1, 2], "written in order"
 
 
 class TestLoggingSetup:

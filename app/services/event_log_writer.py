@@ -19,7 +19,9 @@
 Events are validated by `LogEvent` before they get here. `EventLogWriter.write`
 stamps ``time.server`` the moment an event is received (not when it is
 flushed), then a background worker appends it to
-``<directory>/session-<session_id>.jsonl``. Requests never wait on disk.
+``<directory>/session-<session_id>.jsonl``. Requests never wait on disk, and
+the append runs in a thread, so a slow disk or a held file lock doesn't stall
+the event loop that serves searches.
 
 This log does not depend on the diagnostic log level: every event that is
 written here is kept.
@@ -89,7 +91,8 @@ class EventLogWriter:
             if event is None:
                 break
             try:
-                self._append(event)
+                # One append at a time, in order; off the event loop
+                await asyncio.to_thread(self._append, event)
             except Exception:
                 logger.exception(
                     "Failed to write event {} for session {}",
