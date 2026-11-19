@@ -45,6 +45,7 @@ EventType = Literal[
     "result_state",
     "result_click",
     "hover",
+    "scroll",
     "relevance_label",
     "display_change",
     "visibility_change",
