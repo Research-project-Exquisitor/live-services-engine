@@ -98,7 +98,7 @@ class AuditLogger:
         completion_time: Optional[int] = None,
     ):
         """Log an audit entry asynchronously."""
-        timestamp = request_timestamp or int(time.time())
+        timestamp = request_timestamp or int(time.time() * 1000)
 
         log_entry = {
             "timestamp": timestamp,
@@ -107,7 +107,7 @@ class AuditLogger:
             "data": data,
         }
 
-        if completion_time:
+        if completion_time is not None:
             log_entry["completion_time"] = completion_time
 
         await self._queue.put(log_entry)
@@ -121,7 +121,7 @@ class AuditLogger:
         completion_time: Optional[int] = None,
     ):
         """Log an audit entry synchronously (for non-async contexts)."""
-        timestamp = request_timestamp or int(time.time())
+        timestamp = request_timestamp or int(time.time() * 1000)
 
         log_entry = {
             "timestamp": timestamp,
@@ -130,7 +130,7 @@ class AuditLogger:
             "data": data,
         }
 
-        if completion_time:
+        if completion_time is not None:
             log_entry["completion_time"] = completion_time
 
         self._write_log_sync(log_entry)
