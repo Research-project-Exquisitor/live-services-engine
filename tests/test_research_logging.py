@@ -110,6 +110,20 @@ def test_hover_events_keep_their_raw_start_and_end(logging_app):
     assert event.data["end_ms"] - event.data["start_ms"] == 40
 
 
+def test_scroll_gestures_keep_their_container_and_positions(logging_app):
+    app, event_log_writer, _ = logging_app
+    gesture = [client_event(type="scroll", target="results", sequence=i, data={
+        "phase": phase, "container": "result_grid", "top": top, "left": 0,
+    }) for i, (phase, top) in enumerate([("start", 0), ("end", 1840)])]
+    with TestClient(app) as client:
+        assert client.post("/exq/log/clientEventV2", json=gesture).status_code == 202
+    events = read_events(event_log_writer)
+    # One event at each end of a gesture, no positions in between (D26).
+    assert [(e.type, e.data["phase"], e.data["top"]) for e in events] == [
+        ("scroll", "start", 0), ("scroll", "end", 1840),
+    ]
+
+
 def test_text_input_keeps_every_change_with_the_full_text(logging_app):
     app, event_log_writer, _ = logging_app
     edits = [client_event(type="text_input", sequence=i, data={
