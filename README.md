@@ -78,7 +78,9 @@ original_media_url = "https://localhost:5001/my_collection"
 # source_type = "Text"
 ```
 
-Each `[[collections]]` section defines a collection, with one or more nested `[[collections.indexes]]` sections for its embeddings/index configuration. See `data/config.toml.template` for the full set of per-index options (`model_name`, `source_type`, `tagset`, `preload_all_indexes`, etc.).
+Each `[[collections]]` section defines a collection, with one or more nested `[[collections.indexes]]` sections for its embeddings/index configuration. See `data/config.toml.template` for the full set of options, both per collection (e.g. `preload_all_indexes`) and per index (e.g. `model_name`, `source_type`, `tagset`).
+
+A CLIP index's `model_name` is an open_clip model name such as `ViT-SO400M-14-SigLIP-384`, which works when open_clip has one set of weights for that model. For a model with several, such as ViT-B-32, use the `hf-hub:` name of the weights you want, such as `hf-hub:timm/vit_base_patch32_clip_224.openai`. If you give the plain name, the LSE stops at startup and lists the `hf-hub:` names to choose from.
 
 ## Usage
 

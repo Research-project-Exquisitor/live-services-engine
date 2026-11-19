@@ -111,9 +111,9 @@ async def get_item_detailed_info(
     ``metadata``.
     """
     try:
-        result = item_service.get_item_detailed_info(request)
+        info = item_service.get_item_info(request)
 
-        return result
+        return info.get("metadata", {})
 
     except DatabaseError as e:
         logger.exception("get_item_detailed_info failed")

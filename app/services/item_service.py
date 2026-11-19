@@ -40,7 +40,6 @@ from app.repositories.database_repository import DatabaseRepository
 
 from ..schemas import (
     ItemBatchRequest,
-    ItemDetailRequest,
     ItemRequest,
     IsExcludedRequest,
 )
@@ -115,13 +114,20 @@ class ItemService:
         collection_config: CollectionConfig,
         include_metadata: bool,
     ) -> Dict[str, Any]:
-        """Shape a repository item into the item info response."""
+        """Shape a repository item into the item info response.
+
+        `thumbPath` is None for media without a thumbnail, e.g. whole videos.
+        """
+        thumbnail_uri = item["thumbnail_uri"]
         result = {
             "id": media_id,
-            "name": item["item_id"],
             "mediaId": media_id,
             "mediaType": item["source_type"],
-            "thumbPath": collection_config.thumbnail_url(item["thumbnail_uri"]),
+            "thumbPath": (
+                collection_config.thumbnail_url(thumbnail_uri)
+                if thumbnail_uri is not None
+                else None
+            ),
             "srcPath": collection_config.original_url(item["media_uri"]),
             "groupId": item["group"],
         }
@@ -130,14 +136,6 @@ class ItemService:
             result["metadata"] = item.get("metadata") or {}
 
         return result
-
-    def get_item_detailed_info(self, request: ItemDetailRequest) -> Dict[str, Any]:
-        """Get detailed information for an item.
-
-        Deprecated: use `get_item_info` with ``filterIds``. This fetches
-        the full base info and throws everything away except ``metadata``.
-        """
-        return self.get_item_info(request).get("metadata", {})
 
     def get_related_items(
         self,
