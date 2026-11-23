@@ -38,6 +38,8 @@ SCHEMA_VERSION = 1
 EventType = Literal[
     "session_start",
     "session_end",
+    "page_start",
+    "page_end",
     "text_input",
     "query_submission",
     "query_execution",
