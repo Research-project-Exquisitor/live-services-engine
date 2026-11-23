@@ -351,12 +351,12 @@ def test_a_recording_keeps_its_page_loads(logging_app):
     # One recording across a reload: the second page continues the sequence (D32).
     pages = [client_event(type=kind, target="session", sequence=i, data={"page_id": page, "reason": reason})
              for i, (kind, page, reason) in enumerate([
-                 ("session_start", "p1", "user_started"), ("page_end", "p1", "pagehide"),
-                 ("page_start", "p2", "reload"), ("session_end", "p2", "user_ended"),
+                 ("session_start", "p1", "user_started"), ("page_unload", "p1", "pagehide"),
+                 ("page_load", "p2", "reload"), ("session_end", "p2", "user_ended"),
              ])]
     with TestClient(app) as client:
         assert client.post("/exq/log/clientEventV2", json=pages).status_code == 202
     events = read_events(event_log_writer)
     assert [(e.type, e.data["page_id"], e.sequence) for e in events] == [
-        ("session_start", "p1", 0), ("page_end", "p1", 1), ("page_start", "p2", 2), ("session_end", "p2", 3),
+        ("session_start", "p1", 0), ("page_unload", "p1", 1), ("page_load", "p2", 2), ("session_end", "p2", 3),
     ]
